@@ -25,10 +25,14 @@ import kotlinx.datetime.toLocalDateTime
 import javax.inject.Inject
 
 /**
- * One row per (non-income, non-fee) category. [limitMinorUnits] is `null` when the category
- * has no budget yet — that's a normal, unconfigured state, not an error. [isOverBudget] is
- * surfaced separately from color (ruling: "over-budget must be signalled by an explicit
- * label, not color alone") so [BudgetsScreen] can render an explicit "Over budget" label.
+ * One row per (non-income, non-fee category, currency-with-spend-or-budget) — matching
+ * [DashboardAggregator.byCategory]'s own keying, so a category with spend in both NPR and
+ * USD surfaces two independent rows rather than one currency silently overwriting the
+ * other. [limitMinorUnits] is `null` when this particular currency has no budget yet —
+ * that's a normal, unconfigured state, not an error, and a budget in one currency never
+ * applies to another currency's spend for the same category. [isOverBudget] is surfaced
+ * separately from color (ruling: "over-budget must be signalled by an explicit label, not
+ * color alone") so [BudgetsScreen] can render an explicit "Over budget" label.
  */
 data class BudgetRow(
     val categoryId: Long,
@@ -46,10 +50,11 @@ data class BudgetRow(
 data class BudgetsUiState(val rows: List<BudgetRow> = emptyList())
 
 /**
- * Drives the budgets screen: one row per spendable category, merging its current-month
- * spend (via [DashboardAggregator], reused rather than reimplemented — same month
- * boundary as the dashboard, ruling 2) with its [BudgetEntity] if one exists. [clock] and
- * [zone] are injected for deterministic tests, matching [com.kharcha.app.ui.dashboard.DashboardViewModel].
+ * Drives the budgets screen: one row per spendable (category, currency) pair, merging its
+ * current-month spend (via [DashboardAggregator], reused rather than reimplemented — same
+ * month boundary as the dashboard, ruling 2) with its [BudgetEntity] if one exists for that
+ * currency. [clock] and [zone] are injected for deterministic tests, matching
+ * [com.kharcha.app.ui.dashboard.DashboardViewModel].
  */
 @HiltViewModel
 class BudgetsViewModel @Inject constructor(
@@ -80,22 +85,41 @@ class BudgetsViewModel @Inject constructor(
 
         val rows = categories
             .filter { !it.isIncome && !it.isFee }
-            .map { category ->
+            .flatMap { category ->
                 val budget = budgets.find { it.categoryId == category.id }
-                val currency = budget?.currency ?: Currency.NPR
-                val spentMinorUnits = spendByCategoryAndCurrency[category.id to currency]?.total?.minorUnits ?: 0L
-                BudgetRow(
-                    categoryId = category.id,
-                    categoryName = category.name,
-                    colorArgb = category.colorArgb,
-                    currency = currency,
-                    budgetId = budget?.id,
-                    limitMinorUnits = budget?.monthlyLimitMinorUnits,
-                    spentMinorUnits = spentMinorUnits,
-                    alertThresholdPercent = budget?.alertThresholdPercent ?: DEFAULT_THRESHOLD_PERCENT,
-                )
+                // One row per currency that actually has spend this month for this
+                // category (matching DashboardAggregator.byCategory's own keying — never
+                // sum or convert across currencies), plus the budget's own currency even
+                // if that currency has zero spend so far, so a freshly-set budget doesn't
+                // disappear before any spend lands in it. A category with neither spend
+                // nor a budget still gets one empty NPR row, matching prior behaviour for
+                // an entirely unused category.
+                val spendCurrencies = aggregate.byCategory
+                    .filter { it.categoryId == category.id }
+                    .map { it.currency }
+                    .toSet()
+                val currencies = (spendCurrencies + listOfNotNull(budget?.currency))
+                    .ifEmpty { setOf(Currency.NPR) }
+
+                currencies.map { currency ->
+                    val spentMinorUnits = spendByCategoryAndCurrency[category.id to currency]?.total?.minorUnits ?: 0L
+                    // A budget only ever applies to its own currency — a category with an
+                    // NPR budget but USD spend must not show the NPR limit against the USD
+                    // spend row.
+                    val budgetForCurrency = budget?.takeIf { it.currency == currency }
+                    BudgetRow(
+                        categoryId = category.id,
+                        categoryName = category.name,
+                        colorArgb = category.colorArgb,
+                        currency = currency,
+                        budgetId = budgetForCurrency?.id,
+                        limitMinorUnits = budgetForCurrency?.monthlyLimitMinorUnits,
+                        spentMinorUnits = spentMinorUnits,
+                        alertThresholdPercent = budgetForCurrency?.alertThresholdPercent ?: DEFAULT_THRESHOLD_PERCENT,
+                    )
+                }
             }
-            .sortedBy { it.categoryName }
+            .sortedWith(compareBy({ it.categoryName }, { it.currency.name }))
 
         BudgetsUiState(rows)
     }.stateIn(

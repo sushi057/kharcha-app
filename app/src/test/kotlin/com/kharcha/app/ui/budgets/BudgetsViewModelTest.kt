@@ -91,12 +91,12 @@ class BudgetsViewModelTest {
         Dispatchers.resetMain()
     }
 
-    private fun txn(amount: Long, categoryId: Long?, day: Int = 5) = TransactionEntity(
-        id = amount,
+    private fun txn(amount: Long, categoryId: Long?, day: Int = 5, currency: Currency = Currency.NPR) = TransactionEntity(
+        id = amount + currency.ordinal * 1_000_000_000L,
         rawMessageId = null,
         sourceAccount = "acct",
         amountMinorUnits = amount,
-        currency = Currency.NPR,
+        currency = currency,
         direction = Direction.DEBIT,
         occurredAtEpochMillis = LocalDate(2026, 8, day).atStartOfDayIn(zone).toEpochMilliseconds(),
         remark = "remark",
@@ -148,6 +148,74 @@ class BudgetsViewModelTest {
         val row = viewModel.state.value.rows.single()
         assertNull(row.limitMinorUnits)
         assertEquals(600_00L, row.spentMinorUnits)
+        assertFalse(row.isOverBudget)
+    }
+
+    @Test
+    fun `a category with USD-only spend and no budget surfaces a USD row, not a hidden zero-NPR row`() = runTest {
+        // Regression for the reviewer finding: `budget?.currency ?: Currency.NPR` picked
+        // NPR whenever there was no budget, so a category whose only spend is USD would
+        // look up spendByCategoryAndCurrency[categoryId to NPR], miss, and silently render
+        // "No budget set" / 0 spent while real USD spend existed. This must fail under
+        // that old behaviour: it would assert a single NPR row with 0 spent instead.
+        val viewModel = BudgetsViewModel(
+            budgetDao = FakeBudgetDao(),
+            categoryDao = FakeCategoryDao(listOf(foodCategory)),
+            transactionDao = FakeTransactionDao(listOf(txn(50_00L, foodCategory.id, currency = Currency.USD))),
+            clock = FixedClock(fixedNow),
+            zone = zone,
+        )
+        val row = viewModel.state.value.rows.single()
+        assertEquals(Currency.USD, row.currency)
+        assertEquals(50_00L, row.spentMinorUnits)
+        assertNull(row.limitMinorUnits)
+    }
+
+    @Test
+    fun `a category with an NPR budget that also has USD spend surfaces both currencies independently`() = runTest {
+        // Old behaviour picked the budget's currency (NPR) unconditionally and never
+        // looked at USD at all, so the USD spend never appeared anywhere on the screen.
+        val budget = BudgetEntity(id = 1L, categoryId = foodCategory.id, monthlyLimitMinorUnits = 1000_00L, currency = Currency.NPR, alertThresholdPercent = 80)
+        val viewModel = BudgetsViewModel(
+            budgetDao = FakeBudgetDao(listOf(budget)),
+            categoryDao = FakeCategoryDao(listOf(foodCategory)),
+            transactionDao = FakeTransactionDao(
+                listOf(
+                    txn(300_00L, foodCategory.id, currency = Currency.NPR),
+                    txn(75_00L, foodCategory.id, currency = Currency.USD),
+                )
+            ),
+            clock = FixedClock(fixedNow),
+            zone = zone,
+        )
+        val rows = viewModel.state.value.rows.associateBy { it.currency }
+        assertEquals(2, rows.size)
+
+        val nprRow = rows.getValue(Currency.NPR)
+        assertEquals(300_00L, nprRow.spentMinorUnits)
+        assertEquals(1000_00L, nprRow.limitMinorUnits)
+
+        // The NPR budget must never apply to the USD row — no limit, no cross-currency
+        // comparison (invariant: currencies are never summed or converted).
+        val usdRow = rows.getValue(Currency.USD)
+        assertEquals(75_00L, usdRow.spentMinorUnits)
+        assertNull(usdRow.limitMinorUnits)
+    }
+
+    @Test
+    fun `a category with a budget but zero spend in that currency still shows as zero, not hidden`() = runTest {
+        val budget = BudgetEntity(id = 1L, categoryId = foodCategory.id, monthlyLimitMinorUnits = 1000_00L, currency = Currency.USD, alertThresholdPercent = 80)
+        val viewModel = BudgetsViewModel(
+            budgetDao = FakeBudgetDao(listOf(budget)),
+            categoryDao = FakeCategoryDao(listOf(foodCategory)),
+            transactionDao = FakeTransactionDao(),
+            clock = FixedClock(fixedNow),
+            zone = zone,
+        )
+        val row = viewModel.state.value.rows.single()
+        assertEquals(Currency.USD, row.currency)
+        assertEquals(0L, row.spentMinorUnits)
+        assertEquals(1000_00L, row.limitMinorUnits)
         assertFalse(row.isOverBudget)
     }
 
