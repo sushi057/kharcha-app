@@ -6,3 +6,6 @@ local.properties
 .DS_Store
 *.iml
 .kotlin/
+
+# agent worktrees (scratch, not part of the project)
+.claude/worktrees/
