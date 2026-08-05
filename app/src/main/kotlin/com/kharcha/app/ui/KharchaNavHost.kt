@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.MailOutline
+import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material.icons.filled.Home
@@ -24,6 +25,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.kharcha.app.ui.budgets.BudgetsScreen
 import com.kharcha.app.ui.dashboard.DashboardScreen
 import com.kharcha.app.ui.transactions.TransactionsScreen
 import com.kharcha.app.ui.unparsed.UnparsedScreen
@@ -39,12 +41,14 @@ sealed class KharchaDestination(val route: String, val label: String, val icon: 
     data object Dashboard : KharchaDestination("dashboard", "Dashboard", Icons.Filled.Home)
     data object Transactions : KharchaDestination("transactions", "Transactions", Icons.Filled.List)
     data object Unparsed : KharchaDestination("unparsed", "Unparsed", Icons.Filled.MailOutline)
+    data object Budgets : KharchaDestination("budgets", "Budgets", Icons.Filled.AccountBalanceWallet)
 }
 
 private val kharchaDestinations = listOf<KharchaDestination>(
     KharchaDestination.Dashboard,
     KharchaDestination.Transactions,
     KharchaDestination.Unparsed,
+    KharchaDestination.Budgets,
 )
 
 @Composable
@@ -102,6 +106,9 @@ fun KharchaNavHost(navController: NavHostController = rememberNavController()) {
             }
             composable(KharchaDestination.Unparsed.route) {
                 UnparsedScreen(modifier = Modifier, viewModel = unparsedViewModel)
+            }
+            composable(KharchaDestination.Budgets.route) {
+                BudgetsScreen(modifier = Modifier)
             }
         }
     }

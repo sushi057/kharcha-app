@@ -17,6 +17,13 @@ import kotlinx.datetime.toInstant
 enum class IngestOutcome { STORED, DUPLICATE, IGNORED, UNPARSED, WRONG_SENDER }
 
 /**
+ * [outcome] plus, for a [IngestOutcome.STORED] result, the category the new transaction
+ * landed in (`null` if uncategorized). Task 11's [com.kharcha.app.notify.BudgetNotifier]
+ * needs this signal — [IngestWorker] previously discarded [outcome] entirely.
+ */
+data class IngestResult(val outcome: IngestOutcome, val categoryId: Long? = null)
+
+/**
  * Owns the entire SMS-to-transaction pipeline: sender filtering, dedup, parsing,
  * categorization and persistence. Deliberately plain-Kotlin so it is unit-testable with
  * in-memory fakes for [RawMessageDao], [TransactionDao] and [RuleDao] — no Room, no
@@ -39,7 +46,7 @@ class MessageIngestor(
      * per message is wasted work across a large batch and would visibly slow down a
      * first-run historical import.
      */
-    suspend fun ingest(sender: String, body: String, receivedAtEpochMillis: Long): IngestOutcome =
+    suspend fun ingest(sender: String, body: String, receivedAtEpochMillis: Long): IngestResult =
         ingest(sender, body, receivedAtEpochMillis, categorizer = null)
 
     /**
@@ -60,9 +67,9 @@ class MessageIngestor(
         body: String,
         receivedAtEpochMillis: Long,
         categorizer: Categorizer?
-    ): IngestOutcome {
+    ): IngestResult {
         if (!sender.equals(ruleset.senderId, ignoreCase = true)) {
-            return IngestOutcome.WRONG_SENDER
+            return IngestResult(IngestOutcome.WRONG_SENDER)
         }
 
         val contentHash = contentHashOf(sender, body, receivedAtEpochMillis)
@@ -74,22 +81,22 @@ class MessageIngestor(
         )
         val rawMessageId = rawMessageDao.insertIgnoringDuplicates(rawMessage)
         if (rawMessageId == -1L) {
-            return IngestOutcome.DUPLICATE
+            return IngestResult(IngestOutcome.DUPLICATE)
         }
 
         return when (val result = ruleset.parse(body)) {
             is ParseResult.Parsed -> {
                 val categoryId = categorize(result.transaction, categorizer)
                 transactionDao.insert(result.transaction.toEntity(rawMessageId, categoryId))
-                IngestOutcome.STORED
+                IngestResult(IngestOutcome.STORED, categoryId)
             }
 
             is ParseResult.Ignored -> {
                 rawMessageDao.markIgnored(rawMessageId)
-                IngestOutcome.IGNORED
+                IngestResult(IngestOutcome.IGNORED)
             }
 
-            ParseResult.Unrecognized -> IngestOutcome.UNPARSED
+            ParseResult.Unrecognized -> IngestResult(IngestOutcome.UNPARSED)
         }
     }
 

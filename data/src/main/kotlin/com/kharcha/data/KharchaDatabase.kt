@@ -3,6 +3,7 @@ package com.kharcha.data
 import androidx.room.Database
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
+import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
@@ -11,9 +12,10 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         TransactionEntity::class,
         CategoryEntity::class,
         RuleEntity::class,
-        BudgetEntity::class
+        BudgetEntity::class,
+        BudgetAlertStateEntity::class
     ],
-    version = 1,
+    version = 2,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -23,8 +25,27 @@ abstract class KharchaDatabase : RoomDatabase() {
     abstract fun categoryDao(): CategoryDao
     abstract fun ruleDao(): RuleDao
     abstract fun budgetDao(): BudgetDao
+    abstract fun budgetAlertStateDao(): BudgetAlertStateDao
 
     companion object {
+        /** Task 11: adds the budget-alert fire-once-per-month state table. */
+        val MIGRATION_1_2: Migration = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `budget_alert_states` (" +
+                        "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "`categoryId` INTEGER NOT NULL, " +
+                        "`currency` TEXT NOT NULL, " +
+                        "`yearMonth` TEXT NOT NULL, " +
+                        "`thresholdFired` INTEGER NOT NULL, " +
+                        "`exceededFired` INTEGER NOT NULL)"
+                )
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS `index_budget_alert_states_categoryId_currency_yearMonth` " +
+                        "ON `budget_alert_states` (`categoryId`, `currency`, `yearMonth`)"
+                )
+            }
+        }
         /**
          * Inserts [SeedData.CATEGORIES] and [SeedData.RULES] the moment the
          * database file is first created — never on subsequent opens. Pass

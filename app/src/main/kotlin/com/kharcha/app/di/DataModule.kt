@@ -10,6 +10,10 @@ import com.kharcha.app.ui.onboarding.DataStoreOnboardingState
 import com.kharcha.app.ui.onboarding.OnboardingState
 import com.kharcha.app.ui.onboarding.WorkManagerBackfillGate
 import com.kharcha.app.ui.onboarding.onboardingDataStore
+import com.kharcha.app.notify.AndroidNotificationPoster
+import com.kharcha.app.notify.BudgetNotifier
+import com.kharcha.app.notify.NotificationPoster
+import com.kharcha.data.BudgetAlertStateDao
 import com.kharcha.data.BudgetDao
 import com.kharcha.data.CategoryDao
 import com.kharcha.data.KharchaDatabase
@@ -36,6 +40,7 @@ object DataModule {
     fun provideDatabase(@ApplicationContext context: Context): KharchaDatabase =
         Room.databaseBuilder(context, KharchaDatabase::class.java, "kharcha.db")
             .addCallback(KharchaDatabase.seedCallback)
+            .addMigrations(KharchaDatabase.MIGRATION_1_2)
             .build()
 
     @Provides
@@ -52,6 +57,13 @@ object DataModule {
 
     @Provides
     fun provideBudgetDao(database: KharchaDatabase): BudgetDao = database.budgetDao()
+
+    @Provides
+    fun provideBudgetAlertStateDao(database: KharchaDatabase): BudgetAlertStateDao = database.budgetAlertStateDao()
+
+    @Provides
+    fun provideNotificationPoster(@ApplicationContext context: Context): NotificationPoster =
+        AndroidNotificationPoster(context)
 
     @Provides
     fun provideSenderRuleset(): SenderRuleset = SblAlertRuleset

@@ -4,18 +4,23 @@ import android.content.Context
 import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
+import com.kharcha.app.notify.BudgetNotifier
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 
 /**
  * Thin shell around [MessageIngestor]. All ingestion logic lives in the ingestor; this
- * class only unpacks the [WorkerParameters] input data and reports the WorkManager result.
+ * class unpacks the [WorkerParameters] input data, reports the WorkManager result, and —
+ * for a [IngestOutcome.STORED] message with a resolved category — fans the result out to
+ * [BudgetNotifier] so a budget crossed by this transaction gets its alert (Task 11; this
+ * worker previously discarded the [IngestResult] entirely).
  */
 @HiltWorker
 class IngestWorker @AssistedInject constructor(
     @Assisted appContext: Context,
     @Assisted workerParams: WorkerParameters,
-    private val messageIngestor: MessageIngestor
+    private val messageIngestor: MessageIngestor,
+    private val budgetNotifier: BudgetNotifier
 ) : CoroutineWorker(appContext, workerParams) {
 
     override suspend fun doWork(): Result {
@@ -24,7 +29,11 @@ class IngestWorker @AssistedInject constructor(
         val receivedAtEpochMillis = inputData.getLong(KEY_RECEIVED_AT, -1L)
         if (receivedAtEpochMillis < 0L) return Result.failure()
 
-        messageIngestor.ingest(sender, body, receivedAtEpochMillis)
+        val result = messageIngestor.ingest(sender, body, receivedAtEpochMillis)
+        val categoryId = result.categoryId
+        if (result.outcome == IngestOutcome.STORED && categoryId != null) {
+            budgetNotifier.checkAndNotify(categoryId)
+        }
         return Result.success()
     }
 

@@ -117,21 +117,21 @@ class MessageIngestorTest {
     @Test
     fun `stores a parsed transaction`() = runTest {
         val ingestor = newIngestor()
-        assertEquals(IngestOutcome.STORED, ingestor.ingest("SBL_Alert", qrPayment, 1_754_000_000_000L))
+        assertEquals(IngestOutcome.STORED, ingestor.ingest("SBL_Alert", qrPayment, 1_754_000_000_000L).outcome)
     }
 
     @Test
     fun `the same message ingested twice is a duplicate`() = runTest {
         val ingestor = newIngestor()
         ingestor.ingest("SBL_Alert", qrPayment, 1_754_000_000_000L)
-        assertEquals(IngestOutcome.DUPLICATE, ingestor.ingest("SBL_Alert", qrPayment, 1_754_000_000_000L))
+        assertEquals(IngestOutcome.DUPLICATE, ingestor.ingest("SBL_Alert", qrPayment, 1_754_000_000_000L).outcome)
     }
 
     @Test
     fun `messages from other senders are dropped`() = runTest {
         assertEquals(
             IngestOutcome.WRONG_SENDER,
-            newIngestor().ingest("Ncell", qrPayment, 1_754_000_000_000L)
+            newIngestor().ingest("Ncell", qrPayment, 1_754_000_000_000L).outcome
         )
     }
 
@@ -140,7 +140,7 @@ class MessageIngestorTest {
         val ingestor = newIngestor()
         assertEquals(
             IngestOutcome.IGNORED,
-            ingestor.ingest("SBL_Alert", "288388 is your OTP to get CVV for your Virtual eCom Card.", 1L)
+            ingestor.ingest("SBL_Alert", "288388 is your OTP to get CVV for your Virtual eCom Card.", 1L).outcome
         )
     }
 
@@ -149,7 +149,7 @@ class MessageIngestorTest {
         val ingestor = newIngestor()
         assertEquals(
             IngestOutcome.UNPARSED,
-            ingestor.ingest("SBL_Alert", "Your statement is ready.", 1L)
+            ingestor.ingest("SBL_Alert", "Your statement is ready.", 1L).outcome
         )
     }
 
@@ -158,7 +158,7 @@ class MessageIngestorTest {
         val transactionDao = FakeTransactionDao()
         val ingestor = newIngestor(transactionDao = transactionDao)
 
-        assertEquals(IngestOutcome.STORED, ingestor.ingest("SBL_Alert", qrPayment, 1_754_000_000_000L))
+        assertEquals(IngestOutcome.STORED, ingestor.ingest("SBL_Alert", qrPayment, 1_754_000_000_000L).outcome)
 
         val stored = transactionDao.transactions.single()
         assertEquals(foodDiningCategoryId, stored.categoryId)
@@ -173,7 +173,7 @@ class MessageIngestorTest {
         val transactionDao = FakeTransactionDao()
         val ingestor = newIngestor(transactionDao = transactionDao)
 
-        assertEquals(IngestOutcome.STORED, ingestor.ingest("SBL_Alert", wTaxMessage, 1_754_000_000_000L))
+        assertEquals(IngestOutcome.STORED, ingestor.ingest("SBL_Alert", wTaxMessage, 1_754_000_000_000L).outcome)
 
         val stored = transactionDao.transactions.single()
         assertEquals(feesCategoryId, stored.categoryId)
@@ -188,7 +188,7 @@ class MessageIngestorTest {
         val transactionDao = FakeTransactionDao()
         val ingestor = newIngestor(transactionDao = transactionDao)
 
-        assertEquals(IngestOutcome.STORED, ingestor.ingest("SBL_Alert", unmatched, 1_754_000_000_000L))
+        assertEquals(IngestOutcome.STORED, ingestor.ingest("SBL_Alert", unmatched, 1_754_000_000_000L).outcome)
 
         val stored = transactionDao.transactions.single()
         assertNull(stored.categoryId)
