@@ -83,6 +83,28 @@ class DashboardAggregatorTest {
     }
 
     @Test
+    fun `a bare credit against a neutral category is excluded by direction alone`() {
+        // Neither excludedFromSpending nor isIncome/isFee is in play here — a
+        // deleted `direction == DEBIT` clause would let this leak into spend.
+        val neutralCredit = txn(id = 1, amount = 500_000L, direction = Direction.CREDIT, categoryId = foodCategory.id)
+        val result = aggregate(listOf(neutralCredit))
+
+        assertEquals(Money(0L, Currency.NPR), result.monthToDateSpend[Currency.NPR])
+        assertTrue(result.byCategory.isEmpty())
+    }
+
+    @Test
+    fun `a debit categorized Income is excluded by the isIncome flag alone`() {
+        // Direction is DEBIT here, so only the `!isIncome` clause can be
+        // responsible for exclusion — a deleted clause would let this leak in.
+        val debitMiscategorizedAsIncome = txn(id = 1, amount = 750_000L, categoryId = incomeCategory.id)
+        val result = aggregate(listOf(debitMiscategorizedAsIncome))
+
+        assertEquals(Money(0L, Currency.NPR), result.monthToDateSpend[Currency.NPR])
+        assertTrue(result.byCategory.isEmpty())
+    }
+
+    @Test
     fun `NPR and USD are aggregated separately, never summed`() {
         val nprSpend = txn(id = 1, amount = 298_400L, currency = Currency.NPR)
         val usdSpend = txn(id = 2, amount = 198L, currency = Currency.USD)

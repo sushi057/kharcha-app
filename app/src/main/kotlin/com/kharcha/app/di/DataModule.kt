@@ -65,8 +65,10 @@ object DataModule {
         BackfillState(context.backfillDataStore)
 
     @Provides
+    @Singleton
     fun provideClock(): Clock = Clock.System
 
     @Provides
+    @Singleton
     fun provideTimeZone(): TimeZone = TimeZone.currentSystemDefault()
 }

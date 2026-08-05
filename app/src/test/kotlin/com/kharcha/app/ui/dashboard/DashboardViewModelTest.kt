@@ -128,6 +128,34 @@ class DashboardViewModelTest {
     }
 
     @Test
+    fun `a bare credit against a neutral category is excluded by direction alone`() = runTest {
+        val neutralCredit = transaction(
+            id = 1,
+            amount = 500_000L,
+            currency = Currency.NPR,
+            direction = Direction.CREDIT,
+            categoryId = null,
+        )
+        val state = newViewModel(listOf(neutralCredit)).state.value
+
+        assertEquals(Money(0L, Currency.NPR), state.monthToDateSpend[Currency.NPR])
+    }
+
+    @Test
+    fun `a debit categorized Income is excluded by the isIncome flag alone`() = runTest {
+        val debitMiscategorizedAsIncome = transaction(
+            id = 1,
+            amount = 750_000L,
+            currency = Currency.NPR,
+            direction = Direction.DEBIT,
+            categoryId = incomeCategory.id,
+        )
+        val state = newViewModel(listOf(debitMiscategorizedAsIncome)).state.value
+
+        assertEquals(Money(0L, Currency.NPR), state.monthToDateSpend[Currency.NPR])
+    }
+
+    @Test
     fun `NPR and USD are aggregated separately, never summed`() = runTest {
         val nprSpend = transaction(id = 1, amount = 298_400L, currency = Currency.NPR)
         val usdSpend = transaction(id = 2, amount = 198L, currency = Currency.USD)
