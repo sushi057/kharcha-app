@@ -92,3 +92,60 @@ with two conflicting SDK locations set.
   instrumented-test schema validation, but since there's no `androidTest` source set in use
   yet (Robolectric substitutes for it here), this is unexercised — confirm it still works
   once/if real instrumented tests are added on a device.
+
+## Fix: contentHashOf delimiter collision (post-review)
+
+Code review found `contentHashOf` (`data/src/main/kotlin/com/kharcha/data/entity/RawMessage.kt`)
+hashed `sender`, `body`, `receivedAtEpochMillis` via three separate `digest.update()` calls
+with no delimiter between fields, so `contentHashOf("AB", "C", 1) == contentHashOf("A", "BC", 1)`
+— any two `(sender, body)` pairs where the concatenation is byte-identical at the same
+timestamp collide, silently dropping a genuinely different message as a duplicate.
+
+**Fix**: each field is now prefixed with its own length and separated with a space byte
+before being fed into the digest, so field boundaries are unambiguous:
+
+```kotlin
+fun contentHashOf(sender: String, body: String, receivedAtEpochMillis: Long): String {
+    val digest = MessageDigest.getInstance("SHA-256")
+    val delimiter = " ".toByteArray(Charsets.UTF_8)
+    digest.update(sender.length.toString().toByteArray(Charsets.UTF_8))
+    digest.update(delimiter)
+    digest.update(sender.toByteArray(Charsets.UTF_8))
+    digest.update(delimiter)
+    digest.update(body.length.toString().toByteArray(Charsets.UTF_8))
+    digest.update(delimiter)
+    digest.update(body.toByteArray(Charsets.UTF_8))
+    digest.update(delimiter)
+    digest.update(receivedAtEpochMillis.toString().toByteArray(Charsets.UTF_8))
+    return digest.digest().joinToString(separator = "") { byte -> "%02x".format(byte) }
+}
+```
+
+**Regression test added** (`data/src/test/kotlin/com/kharcha/data/DedupTest.kt`), existing
+`inserting the same message twice stores one row` test left unchanged:
+
+```kotlin
+@Test
+fun `contentHashOf does not collide across a sender-body boundary shift`() {
+    assertNotEquals(
+        contentHashOf("AB", "C", 1),
+        contentHashOf("A", "BC", 1)
+    )
+}
+```
+
+**Command run**:
+```
+export ANDROID_HOME=/home/sushi/Android/Sdk && unset ANDROID_SDK_ROOT
+./gradlew :data:testDebugUnitTest
+```
+Output: `BUILD SUCCESSFUL in 11s` (20 actionable tasks: 7 executed, 13 up-to-date).
+
+`data/build/test-results/testDebugUnitTest/TEST-com.kharcha.data.DedupTest.xml`:
+```xml
+<testsuite name="com.kharcha.data.DedupTest" tests="2" skipped="0" failures="0" errors="0" timestamp="2026-08-05T10:56:53" hostname="sushi" time="3.627">
+  <testcase name="contentHashOf does not collide across a sender-body boundary shift" classname="com.kharcha.data.DedupTest" time="2.063"/>
+  <testcase name="inserting the same message twice stores one row" classname="com.kharcha.data.DedupTest" time="1.563"/>
+</testsuite>
+```
+Both tests pass, 0 failures, 0 errors.

@@ -37,4 +37,12 @@ class DedupTest {
         assertEquals(-1L, dao.insertIgnoringDuplicates(msg))
         assertEquals(1, dao.count())
     }
+
+    @Test
+    fun `contentHashOf does not collide across a sender-body boundary shift`() {
+        assertNotEquals(
+            contentHashOf("AB", "C", 1),
+            contentHashOf("A", "BC", 1)
+        )
+    }
 }
