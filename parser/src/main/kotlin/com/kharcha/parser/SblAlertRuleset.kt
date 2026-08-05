@@ -5,10 +5,15 @@ import kotlinx.datetime.LocalDateTime
 /**
  * Parses SMS alerts from Siddhartha Bank's `SBL_Alert` sender ID.
  *
- * Family A: NPR account debit/credit alerts (this task).
- * Family B (USD card messages) and Family C (OTP/purchase-code ignores)
- * are intentionally not handled here yet — they fall through to
- * [ParseResult.Unrecognized] until Task 4 slots them in.
+ * Family A: NPR account debit/credit alerts.
+ * Family B: USD card purchase alerts.
+ * Family C: OTP / purchase-code messages, which are explicitly ignored
+ * rather than parsed as transactions.
+ *
+ * Dispatch order in [parse] is: ignore list -> Family A -> Family B ->
+ * [ParseResult.Unrecognized]. The ignore list runs first because some
+ * ignorable messages (e.g. purchase codes) contain a date, currency and
+ * amount that could otherwise be misread as a transaction.
  */
 object SblAlertRuleset : SenderRuleset {
 
@@ -21,8 +26,34 @@ object SblAlertRuleset : SenderRuleset {
         setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL)
     )
 
+    private val familyB = Regex(
+        "^SBL\\s+Card\\s+(?<card>\\S+)\\s+used\\s+at\\s+(?<merchant>.+?)\\s+for\\s+USD\\s+" +
+            "(?<amount>[\\d,]+\\.\\d{2})\\s+on\\s+(?<date>\\d{2}\\.\\d{2}\\.\\d{2})\\s+" +
+            "(?<time>\\d{2}:\\d{2})\\s+Authid\\s+(?<authid>\\w+)" +
+            "(?:\\s+Remaining\\s+Balance\\s+after\\s+txn\\s+USD\\s+(?<balance>[\\d,]+\\.\\d{2}))?",
+        setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL)
+    )
+
+    private val otpPattern = Regex("is your OTP", RegexOption.IGNORE_CASE)
+    private val purchaseCodePattern = Regex("^Your purchase code at .* is \\d+$")
+
     override fun parse(body: String): ParseResult {
-        val match = familyA.matchEntire(body) ?: return ParseResult.Unrecognized
+        ignoreReasonFor(body)?.let { return ParseResult.Ignored(it) }
+
+        parseFamilyA(body)?.let { return it }
+        parseFamilyB(body)?.let { return it }
+
+        return ParseResult.Unrecognized
+    }
+
+    private fun ignoreReasonFor(body: String): String? {
+        if (otpPattern.containsMatchIn(body)) return "otp"
+        if (purchaseCodePattern.containsMatchIn(body)) return "purchase code"
+        return null
+    }
+
+    private fun parseFamilyA(body: String): ParseResult? {
+        val match = familyA.matchEntire(body) ?: return null
 
         val account = match.groups["account"]!!.value
         val amountText = match.groups["amount"]!!.value
@@ -39,7 +70,7 @@ object SblAlertRuleset : SenderRuleset {
             else -> return ParseResult.Unrecognized
         }
 
-        val occurredAt = parseOccurredAt(dateText, timeText) ?: return ParseResult.Unrecognized
+        val occurredAt = parseFamilyADate(dateText, timeText) ?: return ParseResult.Unrecognized
 
         val merchant = if (remark.startsWith("QR Payment to ", ignoreCase = true)) {
             remark.substring("QR Payment to ".length)
@@ -63,7 +94,39 @@ object SblAlertRuleset : SenderRuleset {
         )
     }
 
-    private fun parseOccurredAt(dateText: String, timeText: String): LocalDateTime? {
+    private fun parseFamilyB(body: String): ParseResult? {
+        val match = familyB.find(body) ?: return null
+
+        val card = match.groups["card"]!!.value
+        val merchant = match.groups["merchant"]!!.value.trim()
+        val amountText = match.groups["amount"]!!.value
+        val dateText = match.groups["date"]!!.value
+        val timeText = match.groups["time"]!!.value
+        val balanceText = match.groups["balance"]?.value
+
+        val amount = parseAmount(amountText, Currency.USD) ?: return ParseResult.Unrecognized
+        val occurredAt = parseFamilyBDate(dateText, timeText) ?: return ParseResult.Unrecognized
+        val balanceAfter = if (balanceText != null) {
+            parseAmount(balanceText, Currency.USD) ?: return ParseResult.Unrecognized
+        } else {
+            null
+        }
+
+        return ParseResult.Parsed(
+            ParsedTransaction(
+                sourceAccount = card,
+                amount = amount,
+                direction = Direction.DEBIT,
+                occurredAt = occurredAt,
+                remark = merchant,
+                merchant = merchant,
+                balanceAfter = balanceAfter,
+                remarkTruncated = false
+            )
+        )
+    }
+
+    private fun parseFamilyADate(dateText: String, timeText: String): LocalDateTime? {
         val dateParts = dateText.split("/")
         if (dateParts.size != 3) return null
         val day = dateParts[0].toIntOrNull() ?: return null
@@ -78,6 +141,26 @@ object SblAlertRuleset : SenderRuleset {
 
         return try {
             LocalDateTime(year, month, day, hour, minute, second)
+        } catch (e: IllegalArgumentException) {
+            null
+        }
+    }
+
+    private fun parseFamilyBDate(dateText: String, timeText: String): LocalDateTime? {
+        val dateParts = dateText.split(".")
+        if (dateParts.size != 3) return null
+        val day = dateParts[0].toIntOrNull() ?: return null
+        val month = dateParts[1].toIntOrNull() ?: return null
+        val twoDigitYear = dateParts[2].toIntOrNull() ?: return null
+        val year = 2000 + twoDigitYear
+
+        val timeParts = timeText.split(":")
+        if (timeParts.size != 2) return null
+        val hour = timeParts[0].toIntOrNull() ?: return null
+        val minute = timeParts[1].toIntOrNull() ?: return null
+
+        return try {
+            LocalDateTime(year, month, day, hour, minute)
         } catch (e: IllegalArgumentException) {
             null
         }
