@@ -128,10 +128,18 @@ class BudgetsViewModel @Inject constructor(
         initialValue = BudgetsUiState(),
     )
 
-    /** Inserts a new budget for [categoryId], or updates the existing one — never duplicates it. */
+    /**
+     * Inserts a new budget for (categoryId, currency), or updates the existing one for that
+     * same currency — never duplicates it, and never clobbers a budget in a *different*
+     * currency for the same category. Matching by `categoryId` alone would be wrong now
+     * that a category can have independent rows per currency (e.g. an NPR budget plus a
+     * USD-spend row with no budget yet): editing the USD row must not overwrite the NPR
+     * budget entity by mistake.
+     */
     fun setBudget(categoryId: Long, limitMinorUnits: Long, currency: Currency, alertThresholdPercent: Int) {
         viewModelScope.launch {
-            val existing = budgetDao.observeAll().first().find { it.categoryId == categoryId }
+            val existing = budgetDao.observeAll().first()
+                .find { it.categoryId == categoryId && it.currency == currency }
             if (existing != null) {
                 budgetDao.update(
                     existing.copy(

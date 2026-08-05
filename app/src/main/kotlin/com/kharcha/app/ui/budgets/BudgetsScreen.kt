@@ -30,13 +30,14 @@ import com.kharcha.app.ui.theme.KharchaColors
 import com.kharcha.app.ui.theme.KharchaSpacing
 import com.kharcha.app.ui.theme.KharchaTypography
 import com.kharcha.app.ui.theme.MoneyText
+import com.kharcha.parser.Currency
 import com.kharcha.parser.Money
 
 /**
- * One row per spendable category: current-month spend against its budget (if any), with
- * a progress indicator. Over-budget is signalled with an explicit "Over budget" label, not
- * color alone — the debit accent is a reinforcement, not the only signal. No card-in-card
- * nesting: rows are plain, divider-separated, matching [com.kharcha.app.ui.dashboard.DashboardScreen].
+ * Thin [BudgetsViewModel]-wired shell. All layout and interaction lives in
+ * [BudgetsScreenContent], which takes plain state and callbacks so it is directly
+ * Robolectric-testable without a Hilt-backed `hiltViewModel()` call — see [BudgetsScreenTest]
+ * (matching [com.kharcha.app.ui.transactions.TransactionEditSheetContent]'s split).
  */
 @Composable
 fun BudgetsScreen(
@@ -44,6 +45,35 @@ fun BudgetsScreen(
     viewModel: BudgetsViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
+    BudgetsScreenContent(
+        state = state,
+        onSetBudget = viewModel::setBudget,
+        onDeleteBudget = viewModel::deleteBudget,
+        modifier = modifier,
+    )
+}
+
+/**
+ * One row per (category, currency) — a category with spend or a budget in both NPR and
+ * USD gets two independent rows, never merged or summed. Over-budget is signalled with an
+ * explicit "Over budget" label, not color alone — the debit accent is a reinforcement, not
+ * the only signal. No card-in-card nesting: rows are plain, divider-separated, matching
+ * [com.kharcha.app.ui.dashboard.DashboardScreen].
+ *
+ * The `LazyColumn` key is `(categoryId, currency)`, not `categoryId` alone — two rows can
+ * legitimately share a `categoryId` now, and Compose requires unique keys per item.
+ * Because each [BudgetRow] itself carries its own `currency`, tapping a row and saving
+ * always targets that exact (category, currency) pair — see [BudgetsViewModel.setBudget]
+ * for the matching fix on the persistence side (it used to match by `categoryId` alone,
+ * which could clobber a different currency's budget for the same category).
+ */
+@Composable
+fun BudgetsScreenContent(
+    state: BudgetsUiState,
+    onSetBudget: (categoryId: Long, limitMinorUnits: Long, currency: Currency, alertThresholdPercent: Int) -> Unit,
+    onDeleteBudget: (budgetId: Long) -> Unit,
+    modifier: Modifier = Modifier,
+) {
     var editingRow by remember { mutableStateOf<BudgetRow?>(null) }
 
     LazyColumn(
@@ -59,7 +89,7 @@ fun BudgetsScreen(
             Spacer(modifier = Modifier.height(KharchaSpacing.md))
         }
 
-        items(state.rows, key = { it.categoryId }) { row ->
+        items(state.rows, key = { "${it.categoryId}-${it.currency}" }) { row ->
             BudgetRowItem(row = row, onClick = { editingRow = row })
             HorizontalDivider(color = KharchaColors.outline)
         }
@@ -71,12 +101,12 @@ fun BudgetsScreen(
             row = rowBeingEdited,
             onDismiss = { editingRow = null },
             onSave = { limitMinorUnits, thresholdPercent ->
-                viewModel.setBudget(rowBeingEdited.categoryId, limitMinorUnits, rowBeingEdited.currency, thresholdPercent)
+                onSetBudget(rowBeingEdited.categoryId, limitMinorUnits, rowBeingEdited.currency, thresholdPercent)
                 editingRow = null
             },
             onRemove = rowBeingEdited.budgetId?.let { budgetId ->
                 {
-                    viewModel.deleteBudget(budgetId)
+                    onDeleteBudget(budgetId)
                     editingRow = null
                 }
             },
@@ -152,10 +182,12 @@ private fun BudgetEditDialog(
     onSave: (limitMinorUnits: Long, thresholdPercent: Int) -> Unit,
     onRemove: (() -> Unit)?,
 ) {
-    var limitText by remember(row.categoryId) {
+    // Keyed on (categoryId, currency), not categoryId alone — switching between two rows
+    // for the same category (e.g. its NPR row and its USD row) must reset these fields.
+    var limitText by remember(row.categoryId, row.currency) {
         mutableStateOf(row.limitMinorUnits?.let { (it / 100).toString() } ?: "")
     }
-    var thresholdText by remember(row.categoryId) {
+    var thresholdText by remember(row.categoryId, row.currency) {
         mutableStateOf(row.alertThresholdPercent.toString())
     }
 

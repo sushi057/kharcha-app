@@ -254,4 +254,28 @@ class BudgetsViewModelTest {
         assertEquals(900_00L, stored.monthlyLimitMinorUnits)
         assertEquals(90, stored.alertThresholdPercent)
     }
+
+    @Test
+    fun `setBudget for a category's USD row does not clobber that category's existing NPR budget`() = runTest {
+        // A category can now have an existing budget in one currency and no budget yet in
+        // another (e.g. NPR budget + USD spend). Setting a budget for the USD row must
+        // create a *second*, independent budget entity — matching on categoryId alone
+        // would find and overwrite the NPR budget with USD, silently destroying it.
+        val nprBudget = BudgetEntity(id = 1L, categoryId = foodCategory.id, monthlyLimitMinorUnits = 500_00L, currency = Currency.NPR, alertThresholdPercent = 80)
+        val budgetDao = FakeBudgetDao(listOf(nprBudget))
+        val viewModel = BudgetsViewModel(
+            budgetDao = budgetDao,
+            categoryDao = FakeCategoryDao(listOf(foodCategory)),
+            transactionDao = FakeTransactionDao(listOf(txn(75_00L, foodCategory.id, currency = Currency.USD))),
+            clock = FixedClock(fixedNow),
+            zone = zone,
+        )
+
+        viewModel.setBudget(foodCategory.id, 200_00L, Currency.USD, 80)
+
+        val stored = budgetDao.flow.value.associateBy { it.currency }
+        assertEquals(2, stored.size)
+        assertEquals(500_00L, stored.getValue(Currency.NPR).monthlyLimitMinorUnits)
+        assertEquals(200_00L, stored.getValue(Currency.USD).monthlyLimitMinorUnits)
+    }
 }
