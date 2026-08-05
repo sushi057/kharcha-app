@@ -3,6 +3,7 @@ package com.kharcha.app.ui
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -18,6 +19,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.kharcha.app.ui.dashboard.DashboardScreen
 import com.kharcha.app.ui.transactions.TransactionsScreen
 
 /**
@@ -27,10 +29,12 @@ import com.kharcha.app.ui.transactions.TransactionsScreen
  * about the nav structure needs to change.
  */
 sealed class KharchaDestination(val route: String, val label: String, val icon: ImageVector) {
+    data object Dashboard : KharchaDestination("dashboard", "Dashboard", Icons.Filled.Home)
     data object Transactions : KharchaDestination("transactions", "Transactions", Icons.Filled.List)
 }
 
 private val kharchaDestinations = listOf<KharchaDestination>(
+    KharchaDestination.Dashboard,
     KharchaDestination.Transactions,
 )
 
@@ -66,6 +70,9 @@ fun KharchaNavHost(navController: NavHostController = rememberNavController()) {
             startDestination = KharchaDestination.Transactions.route,
             modifier = Modifier.padding(innerPadding),
         ) {
+            composable(KharchaDestination.Dashboard.route) {
+                DashboardScreen(modifier = Modifier)
+            }
             composable(KharchaDestination.Transactions.route) {
                 TransactionsScreen(modifier = Modifier)
             }

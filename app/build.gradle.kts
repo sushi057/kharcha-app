@@ -64,6 +64,7 @@ dependencies {
     implementation(libs.room.runtime)
     implementation(libs.room.ktx)
     implementation(libs.datastore.preferences)
+    implementation(libs.vico.compose)
 
     testImplementation(kotlin("test-junit5"))
     testImplementation(libs.junit5.jupiter)
