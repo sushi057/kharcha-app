@@ -5,6 +5,8 @@ import androidx.room.Room
 import com.kharcha.app.ingest.BackfillState
 import com.kharcha.app.ingest.MessageIngestor
 import com.kharcha.app.ingest.backfillDataStore
+import com.kharcha.data.BudgetDao
+import com.kharcha.data.CategoryDao
 import com.kharcha.data.KharchaDatabase
 import com.kharcha.data.RawMessageDao
 import com.kharcha.data.RuleDao
@@ -37,6 +39,12 @@ object DataModule {
 
     @Provides
     fun provideRuleDao(database: KharchaDatabase): RuleDao = database.ruleDao()
+
+    @Provides
+    fun provideCategoryDao(database: KharchaDatabase): CategoryDao = database.categoryDao()
+
+    @Provides
+    fun provideBudgetDao(database: KharchaDatabase): BudgetDao = database.budgetDao()
 
     @Provides
     fun provideSenderRuleset(): SenderRuleset = SblAlertRuleset
