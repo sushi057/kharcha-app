@@ -61,6 +61,11 @@ class ReparseService(
                             )
                         )
                     } else {
+                        // Categorization-only refresh: only `categoryId` is
+                        // recomputed here. If a future parser improvement
+                        // extracts a different amount/remark/merchant/etc.
+                        // for the same raw message, those fields are NOT
+                        // resynced by reparseAll() — only the category is.
                         transactionDao.update(existing.copy(categoryId = categoryId))
                     }
                 }

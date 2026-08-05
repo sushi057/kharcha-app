@@ -9,11 +9,17 @@ package com.kharcha.data
  * substrings (or prefixes) of the merchant/remark text, never the reverse.
  * `matchesPrefix = true` uses `startsWith`; `false` uses `contains`. Both are
  * case-insensitive. When multiple rules match, the one with the highest
- * `priority` wins; rules are pre-sorted once at construction time.
+ * `priority` wins; rules are pre-sorted once at construction time. Ties are
+ * broken deterministically by ascending `id` (lowest id wins) rather than by
+ * the order the caller happened to supply — this must not depend on
+ * caller-supplied list order, since callers (e.g. `RuleDao.observeAll()`)
+ * are not guaranteed to hand back a stable order for equal priorities.
  */
 class Categorizer(rules: List<RuleEntity>) {
 
-    private val sortedRules = rules.sortedByDescending { it.priority }
+    private val sortedRules = rules.sortedWith(
+        compareByDescending<RuleEntity> { it.priority }.thenBy { it.id }
+    )
 
     fun categorize(remark: String, merchant: String?): Long? {
         val haystack = merchant ?: remark

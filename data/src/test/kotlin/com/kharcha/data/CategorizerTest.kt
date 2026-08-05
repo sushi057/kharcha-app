@@ -60,4 +60,18 @@ class CategorizerTest {
         )
         assertEquals(dining, c.categorize("cIPS Fund Trf Charge", null))
     }
+
+    @Test
+    fun `equal priority ties break deterministically by id regardless of supplied order`() {
+        val ruleA = RuleEntity(id = 100, matchPattern = "cIPS", matchesPrefix = true, categoryId = fees, priority = 50)
+        val ruleB = RuleEntity(id = 200, matchPattern = "Charge", matchesPrefix = false, categoryId = dining, priority = 50)
+
+        val abOrder = Categorizer(listOf(ruleA, ruleB))
+        val baOrder = Categorizer(listOf(ruleB, ruleA))
+
+        val remark = "cIPS Fund Trf Charge"
+        assertEquals(abOrder.categorize(remark, null), baOrder.categorize(remark, null))
+        assertEquals(fees, abOrder.categorize(remark, null))
+        assertEquals(fees, baOrder.categorize(remark, null))
+    }
 }

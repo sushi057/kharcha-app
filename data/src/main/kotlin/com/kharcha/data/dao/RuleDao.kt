@@ -22,6 +22,6 @@ interface RuleDao {
     @Query("SELECT * FROM rules WHERE id = :id")
     suspend fun getById(id: Long): RuleEntity?
 
-    @Query("SELECT * FROM rules ORDER BY priority ASC")
+    @Query("SELECT * FROM rules ORDER BY priority ASC, id ASC")
     fun observeAll(): Flow<List<RuleEntity>>
 }
