@@ -36,6 +36,11 @@ class BackfillWorker @AssistedInject constructor(
         val selection = "${Telephony.Sms.ADDRESS} LIKE ?"
         val selectionArgs = arrayOf(TARGET_SENDER)
 
+        // Built once per backfill run, not once per message: MessageIngestor.ingest's
+        // single-message overload would otherwise re-query the rule table and re-sort it
+        // on every one of potentially thousands of historical rows.
+        val categorizer = messageIngestor.loadCategorizer()
+
         applicationContext.contentResolver.query(
             Telephony.Sms.Inbox.CONTENT_URI,
             projection,
@@ -54,7 +59,7 @@ class BackfillWorker @AssistedInject constructor(
                 val sender = cursor.getString(addressIndex) ?: continue
                 val body = cursor.getString(bodyIndex) ?: continue
                 val receivedAtEpochMillis = cursor.getLong(dateIndex)
-                messageIngestor.ingest(sender, body, receivedAtEpochMillis)
+                messageIngestor.ingest(sender, body, receivedAtEpochMillis, categorizer)
             }
         }
 

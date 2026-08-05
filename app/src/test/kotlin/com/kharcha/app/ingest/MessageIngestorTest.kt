@@ -66,11 +66,18 @@ private class FakeTransactionDao : TransactionDao {
 }
 
 private class FakeRuleDao(private val rules: List<RuleEntity> = emptyList()) : RuleDao {
+    var observeAllCallCount = 0
+        private set
+
     override suspend fun insert(rule: RuleEntity): Long = 0L
     override suspend fun update(rule: RuleEntity) = Unit
     override suspend fun delete(rule: RuleEntity) = Unit
     override suspend fun getById(id: Long): RuleEntity? = rules.find { it.id == id }
-    override fun observeAll(): Flow<List<RuleEntity>> = flowOf(rules)
+
+    override fun observeAll(): Flow<List<RuleEntity>> {
+        observeAllCallCount++
+        return flowOf(rules)
+    }
 }
 
 class MessageIngestorTest {
@@ -94,9 +101,10 @@ class MessageIngestorTest {
 
     private fun newIngestor(
         transactionDao: FakeTransactionDao = FakeTransactionDao(),
-        rules: List<RuleEntity> = seededRules
+        rules: List<RuleEntity> = seededRules,
+        ruleDao: FakeRuleDao = FakeRuleDao(rules)
     ): MessageIngestor =
-        MessageIngestor(FakeRawMessageDao(), transactionDao, SblAlertRuleset, FakeRuleDao(rules))
+        MessageIngestor(FakeRawMessageDao(), transactionDao, SblAlertRuleset, ruleDao)
 
     @Test
     fun `stores a parsed transaction`() = runTest {
@@ -176,5 +184,34 @@ class MessageIngestorTest {
 
         val stored = transactionDao.transactions.single()
         assertNull(stored.categoryId)
+    }
+
+    @Test
+    fun `a batch ingested with a pre-built categorizer only queries rules once`() = runTest {
+        val transactionDao = FakeTransactionDao()
+        val ruleDao = FakeRuleDao(seededRules)
+        val ingestor = newIngestor(transactionDao = transactionDao, ruleDao = ruleDao)
+
+        val categorizer = ingestor.loadCategorizer()
+        assertEquals(1, ruleDao.observeAllCallCount)
+
+        val wTaxMessage =
+            "Dear SUVASH, AC 0###15164761, NPR 10.00 withdrawn on 17/07/2026 12:10:01 " +
+                "for WTax.Pd on Interest"
+        val otherMessage =
+            "Dear SUVASH, AC 0###15164761, NPR 20.00 withdrawn on 17/07/2026 13:10:01 " +
+                "for WTax.Pd on Interest again"
+
+        ingestor.ingest("SBL_Alert", qrPayment, 1_754_000_000_000L, categorizer)
+        ingestor.ingest("SBL_Alert", wTaxMessage, 1_754_000_100_000L, categorizer)
+        ingestor.ingest("SBL_Alert", otherMessage, 1_754_000_200_000L, categorizer)
+
+        // observeAll() was called exactly once — by loadCategorizer() up front — not once
+        // per message in the batch that followed.
+        assertEquals(1, ruleDao.observeAllCallCount)
+        assertEquals(3, transactionDao.transactions.size)
+        assertEquals(foodDiningCategoryId, transactionDao.transactions[0].categoryId)
+        assertEquals(feesCategoryId, transactionDao.transactions[1].categoryId)
+        assertEquals(feesCategoryId, transactionDao.transactions[2].categoryId)
     }
 }

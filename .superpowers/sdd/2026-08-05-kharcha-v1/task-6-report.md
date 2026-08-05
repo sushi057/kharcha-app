@@ -274,3 +274,91 @@ yet for Task 11's budget-notification fan-out), the unparsed-inbox invariant hol
 convention rather than a DB constraint, and the device-unverified receiver/backfill code paths.
 No new concerns introduced by this fix — categorization failure is caught and degrades to
 `categoryId = null`, which was already the correct/expected outcome for an unmatched remark.
+
+## Fix: stop re-querying rules per message during backfill (second post-review round)
+
+Review verdict on the categorization fix: **ADDRESSED**, all five conditions verified,
+mutation-tested by injecting a throw into the `try/catch` to confirm it's load-bearing. But it
+surfaced a new Important finding: `BackfillWorker`'s per-row loop called the single-message
+`ingest(...)`, which built a fresh `Categorizer` — one `ruleDao.observeAll().first()` (a full
+`SELECT * FROM rules`) plus an `O(n log n)` sort — on every historical row. For a first-run
+backfill scanning a user's entire SMS history that's N synchronous DB round-trips where 1 would
+do, and it's exactly the kind of thing that makes a first-run experience feel broken.
+
+### What changed
+
+`MessageIngestor` (`app/src/main/kotlin/com/kharcha/app/ingest/MessageIngestor.kt`) now exposes
+three public members instead of one:
+
+- `suspend fun ingest(sender, body, receivedAtEpochMillis): IngestOutcome` — unchanged
+  signature, unchanged behavior. Internally now just delegates to the four-arg overload with
+  `categorizer = null`, which keeps its old semantics: fetch the current rules and build a
+  fresh `Categorizer` on every call, so the live single-message path (`IngestWorker`) always
+  reflects a rule the user added a moment ago.
+- `suspend fun ingest(sender, body, receivedAtEpochMillis, categorizer: Categorizer?): IngestOutcome`
+  — the new batch-friendly entry point. When `categorizer` is non-null, it's used directly
+  instead of touching `ruleDao` at all.
+- `suspend fun loadCategorizer(): Categorizer` — reads the rule set once (`ruleDao.observeAll().first()`)
+  and builds a `Categorizer` from it. Batch callers call this once per run, then pass the
+  result into every `ingest(...)` call in the batch.
+
+`categorize(transaction, categorizer)` was updated to use the passed-in `Categorizer` when
+present, only falling back to a fresh `ruleDao` query when `categorizer == null` (the
+single-message path). The `try/catch` degrading to `categoryId = null` on any failure is
+unchanged and still wraps both paths.
+
+`BackfillWorker` (`app/src/main/kotlin/com/kharcha/app/ingest/BackfillWorker.kt`) now calls
+`messageIngestor.loadCategorizer()` once before the cursor loop, and passes that single
+`Categorizer` instance into every `messageIngestor.ingest(sender, body, receivedAtEpochMillis, categorizer)`
+call inside `while (cursor.moveToNext())`. One rule-table read and one sort per backfill run,
+regardless of how many historical messages it processes.
+
+### Test added
+
+`app/src/test/kotlin/com/kharcha/app/ingest/MessageIngestorTest.kt`:
+
+- `FakeRuleDao` now tracks `observeAllCallCount`, incremented on every `observeAll()` call.
+- `newIngestor()` gained an optional `ruleDao: FakeRuleDao` parameter so tests can hold a
+  reference to the fake and inspect its call count after exercising the ingestor.
+- New test `a batch ingested with a pre-built categorizer only queries rules once`: calls
+  `loadCategorizer()` once (asserting `observeAllCallCount == 1` immediately after), then
+  ingests three different messages — a QR payment, a WTax.Pd message, and a second WTax.Pd-like
+  message — all passing the same pre-built `categorizer`. Asserts `observeAllCallCount` is
+  still `1` after all three (proving the batch path doesn't re-query), that all three
+  transactions were stored, and that each landed in the category its matching rule implies
+  (Food & Dining, Fees, Fees) — proving the shared `Categorizer` instance still categorizes
+  correctly across the whole batch, not just that the query count is low.
+- All 8 prior assertions (5 original + 3 from the earlier categorization fix) unchanged.
+
+### Commands run (real output)
+
+```
+$ export ANDROID_HOME=/home/sushi/Android/Sdk && unset ANDROID_SDK_ROOT
+$ ./gradlew :app:testDebugUnitTest --tests '*MessageIngestorTest*'
+...
+BUILD SUCCESSFUL in 6s
+48 actionable tasks: 11 executed, 37 up-to-date
+```
+(`app/build/test-results/testDebugUnitTest/TEST-com.kharcha.app.ingest.MessageIngestorTest.xml`:
+`tests="9" skipped="0" failures="0" errors="0"` — 8 prior + 1 new.)
+
+```
+$ ./gradlew :app:testDebugUnitTest
+...
+BUILD SUCCESSFUL in 1s
+48 actionable tasks: 1 executed, 47 up-to-date
+```
+
+```
+$ ./gradlew :app:assembleDebug
+...
+BUILD SUCCESSFUL in 1s
+63 actionable tasks: 3 executed, 60 up-to-date
+```
+
+### Concerns carried forward
+
+Same three as before (discarded `IngestOutcome` for Task 11, unparsed-inbox invariant by
+convention, device-unverified receiver/backfill paths). No new concerns — the live
+single-message path's per-call rule fetch is intentional (correctness for a just-added rule),
+and the batch path now does the minimum possible DB work per run.
