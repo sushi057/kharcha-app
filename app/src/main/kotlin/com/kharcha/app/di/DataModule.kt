@@ -23,6 +23,8 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
+import kotlinx.datetime.Clock
+import kotlinx.datetime.TimeZone
 import javax.inject.Singleton
 
 @Module
@@ -78,4 +80,12 @@ object DataModule {
         @ApplicationContext context: Context,
         backfillState: BackfillState,
     ): BackfillGate = WorkManagerBackfillGate(context, backfillState)
+
+    @Provides
+    @Singleton
+    fun provideClock(): Clock = Clock.System
+
+    @Provides
+    @Singleton
+    fun provideTimeZone(): TimeZone = TimeZone.currentSystemDefault()
 }
