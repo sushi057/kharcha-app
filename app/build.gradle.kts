@@ -58,3 +58,7 @@ dependencies {
     testImplementation(libs.junit5.jupiter)
     testImplementation(libs.robolectric)
 }
+
+tasks.withType<Test>().configureEach {
+    useJUnitPlatform()
+}
