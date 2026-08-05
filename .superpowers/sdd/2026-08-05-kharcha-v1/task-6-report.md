@@ -184,3 +184,93 @@ nothing else regressed.)
   unverified beyond compiling and `assembleDebug` succeeding. They should get a real-device or
   at minimum Robolectric-backed smoke test before Task 9-12 build UI on top of the assumption
   that ingestion actually works end-to-end on-device.
+
+## Fix: wire categorization into `MessageIngestor` (post-review)
+
+Review verdict: the categorization gap (`categoryId` always `null`) was **not** a legitimate
+scope boundary — the "Do NOT implement: categorization (Task 7)" line in the original task
+description governed Task 7's own scope, not Task 6's, and by the time this task's `Parsed`
+branch runs, Task 7's `Categorizer` was already merged into `:data` and callable. Leaving
+`categoryId = null` unconditionally broke the product's headline promise ("a new SMS appears
+as a categorized transaction without opening the app").
+
+### What changed
+
+`MessageIngestor` (`app/src/main/kotlin/com/kharcha/app/ingest/MessageIngestor.kt`) now takes a
+fourth constructor argument, `ruleDao: RuleDao` (plain Kotlin interface from `:data`, so the
+class stays fake-able with no Room/Android types). On a `Parsed` result, before building the
+`TransactionEntity`, a new private `categorize(transaction: ParsedTransaction): Long?` helper:
+
+1. Calls `ruleDao.observeAll().first()` to snapshot the current rule set.
+2. Builds a fresh `Categorizer(rules)` (from `:data`, already tested in `CategorizerTest`) and
+   calls `categorize(remark, merchant)`.
+3. Wraps the whole thing in `try/catch (_: Exception) { null }` — categorization failure must
+   never fail ingestion; an uncategorized transaction beats a lost one. An unmatched remark
+   naturally returns `null` from `Categorizer` itself, which is the correct non-fatal outcome,
+   not an exception path.
+
+The resulting `Long?` is passed into `categoryId` on the built `TransactionEntity`, and
+`categoryIsManualOverride` stays hardcoded `false` — auto-assigned categories are explicitly
+not manual overrides, so Task 7's `ReparseService` can later recompute them freely.
+
+Rebuilding `Categorizer` from scratch on every `ingest()` call (rather than caching it) is
+deliberate: rules can change between messages (user edits a rule, Task 7's re-parse changes
+seed data, etc.) and `MessageIngestor` has no lifecycle hook to know when to invalidate a
+cached instance. Given `Categorizer`'s construction cost is a `sortedWith` over what will
+realistically be a handful of rules, this is not worth optimizing pre-emptively.
+
+`app/src/main/kotlin/com/kharcha/app/di/DataModule.kt` now also provides `RuleDao` (via
+`database.ruleDao()`) and threads it into the `MessageIngestor` `@Provides` function.
+
+### Tests added
+
+`app/src/test/kotlin/com/kharcha/app/ingest/MessageIngestorTest.kt`:
+
+- New `FakeRuleDao(rules: List<RuleEntity>)` implementing `RuleDao` with `observeAll()`
+  backed by `flowOf(rules)` — in-memory, no Room.
+- `newIngestor()` now takes optional `transactionDao`/`rules` parameters and always wires a
+  `FakeRuleDao`; default `seededRules` mirror `SeedData.RULES`'s `WTax.Pd -> Fees` rule
+  (`categoryId = 6L`, matching `SeedData.FEES_ID`) plus a merchant-matching rule for the
+  existing `qrPayment` fixture (`categoryId = 1L`, matching `SeedData.CATEGORIES`'s first
+  entry, "Food & Dining"). Note the QR fixture's rule matches on `"HANKOOK"` rather than
+  `"QR Payment"` — `SblAlertRuleset` extracts `merchant = "JAWALAKHEL HANKOOK SARANG RESTAU"`
+  for a `"QR Payment to <merchant>"` remark, and `Categorizer` matches against `merchant` when
+  present, not `remark`.
+- Three new cases, all asserting `IngestOutcome.STORED` plus inspecting the single stored
+  `TransactionEntity`:
+  - `a QR payment matching a seeded rule is categorized on ingest` — `categoryId == 1L`
+    (Food & Dining) and `categoryIsManualOverride == false`.
+  - `a WTax Pd message is categorized as Fees` — a fresh family-A-shaped SMS with remark
+    `"WTax.Pd on Interest"`, asserting `categoryId == 6L` (Fees) and
+    `categoryIsManualOverride == false`.
+  - `an unmatched remark is stored uncategorized` — a family-A-shaped SMS with a remark no
+    rule matches, asserting `categoryId == null` and the outcome is still `STORED` (not a
+    failure).
+- All 5 original assertions unchanged (same bodies, same expected `IngestOutcome`s).
+
+### Commands run (real output)
+
+```
+$ export ANDROID_HOME=/home/sushi/Android/Sdk && unset ANDROID_SDK_ROOT
+$ ./gradlew :app:testDebugUnitTest --tests '*MessageIngestorTest*'
+...
+BUILD SUCCESSFUL in 3s
+48 actionable tasks: 4 executed, 44 up-to-date
+```
+(`app/build/test-results/testDebugUnitTest/TEST-com.kharcha.app.ingest.MessageIngestorTest.xml`:
+`tests="8" skipped="0" failures="0" errors="0"` — 5 original + 3 new.)
+
+```
+$ ./gradlew :app:assembleDebug
+...
+BUILD SUCCESSFUL in 1s
+63 actionable tasks: 4 executed, 59 up-to-date
+```
+
+### Concerns carried forward
+
+Unchanged from the original report: the discarded `IngestOutcome` in `IngestWorker` (no hook
+yet for Task 11's budget-notification fan-out), the unparsed-inbox invariant holding by
+convention rather than a DB constraint, and the device-unverified receiver/backfill code paths.
+No new concerns introduced by this fix — categorization failure is caught and degrades to
+`categoryId = null`, which was already the correct/expected outcome for an unmatched remark.

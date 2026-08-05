@@ -7,6 +7,7 @@ import com.kharcha.app.ingest.MessageIngestor
 import com.kharcha.app.ingest.backfillDataStore
 import com.kharcha.data.KharchaDatabase
 import com.kharcha.data.RawMessageDao
+import com.kharcha.data.RuleDao
 import com.kharcha.data.TransactionDao
 import com.kharcha.parser.SblAlertRuleset
 import com.kharcha.parser.SenderRuleset
@@ -35,14 +36,18 @@ object DataModule {
     fun provideTransactionDao(database: KharchaDatabase): TransactionDao = database.transactionDao()
 
     @Provides
+    fun provideRuleDao(database: KharchaDatabase): RuleDao = database.ruleDao()
+
+    @Provides
     fun provideSenderRuleset(): SenderRuleset = SblAlertRuleset
 
     @Provides
     fun provideMessageIngestor(
         rawMessageDao: RawMessageDao,
         transactionDao: TransactionDao,
-        ruleset: SenderRuleset
-    ): MessageIngestor = MessageIngestor(rawMessageDao, transactionDao, ruleset)
+        ruleset: SenderRuleset,
+        ruleDao: RuleDao
+    ): MessageIngestor = MessageIngestor(rawMessageDao, transactionDao, ruleset, ruleDao)
 
     @Provides
     @Singleton

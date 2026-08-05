@@ -2,14 +2,18 @@ package com.kharcha.app.ingest
 
 import com.kharcha.data.RawMessage
 import com.kharcha.data.RawMessageDao
+import com.kharcha.data.RuleDao
+import com.kharcha.data.RuleEntity
 import com.kharcha.data.TransactionDao
 import com.kharcha.data.TransactionEntity
 import com.kharcha.parser.SblAlertRuleset
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 
 private class FakeRawMessageDao : RawMessageDao {
     val messages = mutableListOf<RawMessage>()
@@ -61,14 +65,38 @@ private class FakeTransactionDao : TransactionDao {
     override fun observeAll(): Flow<List<TransactionEntity>> = flow
 }
 
+private class FakeRuleDao(private val rules: List<RuleEntity> = emptyList()) : RuleDao {
+    override suspend fun insert(rule: RuleEntity): Long = 0L
+    override suspend fun update(rule: RuleEntity) = Unit
+    override suspend fun delete(rule: RuleEntity) = Unit
+    override suspend fun getById(id: Long): RuleEntity? = rules.find { it.id == id }
+    override fun observeAll(): Flow<List<RuleEntity>> = flowOf(rules)
+}
+
 class MessageIngestorTest {
 
     private val qrPayment =
         "Dear SUVASH, AC 0###15164761, NPR 2,984.00 withdrawn on 17/07/2026 12:10:01 " +
             "for QR Payment to JAWALAKHEL HANKOOK SARANG RESTAU"
 
-    private fun newIngestor(): MessageIngestor =
-        MessageIngestor(FakeRawMessageDao(), FakeTransactionDao(), SblAlertRuleset)
+    // Mirrors SeedData: "Food & Dining" wins on the QR payment's merchant name (the
+    // ruleset extracts "JAWALAKHEL HANKOOK SARANG RESTAU" as the merchant for a "QR
+    // Payment to <merchant>" remark, and Categorizer matches against merchant when
+    // present), "Fees" wins on a WTax.Pd remark (matching SeedData.RULES's own
+    // WTax.Pd -> Fees rule verbatim).
+    private val foodDiningCategoryId = 1L
+    private val feesCategoryId = 6L
+
+    private val seededRules = listOf(
+        RuleEntity(id = 1L, matchPattern = "HANKOOK", matchesPrefix = false, categoryId = foodDiningCategoryId, priority = 50),
+        RuleEntity(id = 2L, matchPattern = "WTax.Pd", matchesPrefix = true, categoryId = feesCategoryId, priority = 100)
+    )
+
+    private fun newIngestor(
+        transactionDao: FakeTransactionDao = FakeTransactionDao(),
+        rules: List<RuleEntity> = seededRules
+    ): MessageIngestor =
+        MessageIngestor(FakeRawMessageDao(), transactionDao, SblAlertRuleset, FakeRuleDao(rules))
 
     @Test
     fun `stores a parsed transaction`() = runTest {
@@ -107,5 +135,46 @@ class MessageIngestorTest {
             IngestOutcome.UNPARSED,
             ingestor.ingest("SBL_Alert", "Your statement is ready.", 1L)
         )
+    }
+
+    @Test
+    fun `a QR payment matching a seeded rule is categorized on ingest`() = runTest {
+        val transactionDao = FakeTransactionDao()
+        val ingestor = newIngestor(transactionDao = transactionDao)
+
+        assertEquals(IngestOutcome.STORED, ingestor.ingest("SBL_Alert", qrPayment, 1_754_000_000_000L))
+
+        val stored = transactionDao.transactions.single()
+        assertEquals(foodDiningCategoryId, stored.categoryId)
+        assertEquals(false, stored.categoryIsManualOverride)
+    }
+
+    @Test
+    fun `a WTax Pd message is categorized as Fees`() = runTest {
+        val wTaxMessage =
+            "Dear SUVASH, AC 0###15164761, NPR 10.00 withdrawn on 17/07/2026 12:10:01 " +
+                "for WTax.Pd on Interest"
+        val transactionDao = FakeTransactionDao()
+        val ingestor = newIngestor(transactionDao = transactionDao)
+
+        assertEquals(IngestOutcome.STORED, ingestor.ingest("SBL_Alert", wTaxMessage, 1_754_000_000_000L))
+
+        val stored = transactionDao.transactions.single()
+        assertEquals(feesCategoryId, stored.categoryId)
+        assertEquals(false, stored.categoryIsManualOverride)
+    }
+
+    @Test
+    fun `an unmatched remark is stored uncategorized`() = runTest {
+        val unmatched =
+            "Dear SUVASH, AC 0###15164761, NPR 500.00 withdrawn on 17/07/2026 12:10:01 " +
+                "for Something Nobody Has A Rule For"
+        val transactionDao = FakeTransactionDao()
+        val ingestor = newIngestor(transactionDao = transactionDao)
+
+        assertEquals(IngestOutcome.STORED, ingestor.ingest("SBL_Alert", unmatched, 1_754_000_000_000L))
+
+        val stored = transactionDao.transactions.single()
+        assertNull(stored.categoryId)
     }
 }
