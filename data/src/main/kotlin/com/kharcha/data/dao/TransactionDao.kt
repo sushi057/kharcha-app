@@ -22,6 +22,9 @@ interface TransactionDao {
     @Query("SELECT * FROM transactions WHERE id = :id")
     suspend fun getById(id: Long): TransactionEntity?
 
+    @Query("SELECT * FROM transactions WHERE rawMessageId = :rawMessageId")
+    suspend fun getByRawMessageId(rawMessageId: Long): TransactionEntity?
+
     @Query("SELECT * FROM transactions ORDER BY occurredAtEpochMillis DESC")
     fun observeAll(): Flow<List<TransactionEntity>>
 }

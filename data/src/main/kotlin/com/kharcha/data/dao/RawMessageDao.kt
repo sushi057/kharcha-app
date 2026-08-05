@@ -12,4 +12,7 @@ interface RawMessageDao {
 
     @Query("SELECT COUNT(*) FROM raw_messages")
     suspend fun count(): Int
+
+    @Query("SELECT * FROM raw_messages ORDER BY id ASC")
+    suspend fun getAll(): List<RawMessage>
 }
