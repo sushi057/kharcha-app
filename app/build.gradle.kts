@@ -53,10 +53,14 @@ dependencies {
 
     implementation(libs.work.runtime)
     implementation(libs.kotlinx.datetime)
+    implementation(libs.room.runtime)
+    implementation(libs.room.ktx)
+    implementation(libs.datastore.preferences)
 
     testImplementation(kotlin("test-junit5"))
     testImplementation(libs.junit5.jupiter)
     testImplementation(libs.robolectric)
+    testImplementation(libs.kotlinx.coroutines.test)
 }
 
 tasks.withType<Test>().configureEach {

@@ -10,6 +10,9 @@ interface RawMessageDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertIgnoringDuplicates(message: RawMessage): Long
 
+    @Query("UPDATE raw_messages SET ignored = 1 WHERE id = :id")
+    suspend fun markIgnored(id: Long)
+
     @Query("SELECT COUNT(*) FROM raw_messages")
     suspend fun count(): Int
 
