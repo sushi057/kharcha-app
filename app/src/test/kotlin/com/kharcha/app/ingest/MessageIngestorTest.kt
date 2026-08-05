@@ -34,6 +34,14 @@ private class FakeRawMessageDao : RawMessageDao {
     override suspend fun count(): Int = messages.size
 
     override suspend fun getAll(): List<RawMessage> = messages.toList()
+
+    override fun observeUnparsed(): Flow<List<RawMessage>> =
+        flowOf(messages.filter { !it.ignored && !it.dismissed })
+
+    override suspend fun markDismissed(id: Long) {
+        val index = messages.indexOfFirst { it.id == id }
+        if (index >= 0) messages[index] = messages[index].copy(dismissed = true)
+    }
 }
 
 private class FakeTransactionDao : TransactionDao {

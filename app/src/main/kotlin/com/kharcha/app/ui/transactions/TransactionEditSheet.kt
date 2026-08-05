@@ -52,6 +52,8 @@ fun TransactionEditSheet(
         remark: String,
         categoryId: Long?,
     ) -> Unit,
+    initialMerchantText: String = "",
+    initialAmountText: String = "",
 ) {
     ModalBottomSheet(onDismissRequest = onDismiss) {
         TransactionEditSheetContent(
@@ -64,6 +66,8 @@ fun TransactionEditSheet(
             onAlwaysCategorize = onAlwaysCategorize,
             onAddManual = onAddManual,
             onDismiss = onDismiss,
+            initialMerchantText = initialMerchantText,
+            initialAmountText = initialAmountText,
         )
     }
 }
@@ -84,11 +88,13 @@ fun TransactionEditSheetContent(
         categoryId: Long?,
     ) -> Unit,
     onDismiss: () -> Unit,
+    initialMerchantText: String = "",
+    initialAmountText: String = "",
 ) {
     var merchantText by remember(transaction?.id) {
-        mutableStateOf(transaction?.merchant ?: "")
+        mutableStateOf(transaction?.merchant ?: initialMerchantText)
     }
-    var amountText by remember(transaction?.id) { mutableStateOf("") }
+    var amountText by remember(transaction?.id) { mutableStateOf(initialAmountText) }
     var pendingCategoryPrompt by remember(transaction?.id) {
         mutableStateOf<CategoryEntity?>(null)
     }

@@ -5,6 +5,11 @@ import androidx.room.Room
 import com.kharcha.app.ingest.BackfillState
 import com.kharcha.app.ingest.MessageIngestor
 import com.kharcha.app.ingest.backfillDataStore
+import com.kharcha.app.ui.onboarding.BackfillGate
+import com.kharcha.app.ui.onboarding.DataStoreOnboardingState
+import com.kharcha.app.ui.onboarding.OnboardingState
+import com.kharcha.app.ui.onboarding.WorkManagerBackfillGate
+import com.kharcha.app.ui.onboarding.onboardingDataStore
 import com.kharcha.data.BudgetDao
 import com.kharcha.data.CategoryDao
 import com.kharcha.data.KharchaDatabase
@@ -61,4 +66,16 @@ object DataModule {
     @Singleton
     fun provideBackfillState(@ApplicationContext context: Context): BackfillState =
         BackfillState(context.backfillDataStore)
+
+    @Provides
+    @Singleton
+    fun provideOnboardingState(@ApplicationContext context: Context): OnboardingState =
+        DataStoreOnboardingState(context.onboardingDataStore)
+
+    @Provides
+    @Singleton
+    fun provideBackfillGate(
+        @ApplicationContext context: Context,
+        backfillState: BackfillState,
+    ): BackfillGate = WorkManagerBackfillGate(context, backfillState)
 }
