@@ -27,4 +27,9 @@ class MoneyTest {
         assertNull(parseAmount("1,00.000", Currency.NPR))
         assertNull(parseAmount("-5.00", Currency.NPR))
     }
+
+    @Test
+    fun `rejects amounts that overflow Long`() {
+        assertNull(parseAmount("99999999999999999999.00", Currency.NPR))
+    }
 }

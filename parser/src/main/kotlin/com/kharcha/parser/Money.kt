@@ -21,14 +21,28 @@ fun parseAmount(text: String, currency: Currency): Money? {
     val decimalPart = if (parts.size > 1) parts[1] else ""
 
     // Convert to minor units: integer * 100 + decimal (zero-padded)
-    val integerMinorUnits = integerPart.toLong() * 100
+    // Use toLongOrNull() to safely handle overflow (too many digits for Long)
+    val integerValue = integerPart.toLongOrNull() ?: return null
+    val integerMinorUnits = try {
+        Math.multiplyExact(integerValue, 100)
+    } catch (e: ArithmeticException) {
+        return null  // Overflow on multiplication
+    }
+
     val decimalMinorUnits = when (decimalPart.length) {
         0 -> 0L
-        1 -> decimalPart.toLong() * 10  // e.g., ".5" becomes 50
-        2 -> decimalPart.toLong()        // e.g., ".50" becomes 50
+        1 -> {
+            val decValue = decimalPart.toLongOrNull() ?: return null
+            decValue * 10  // e.g., ".5" becomes 50
+        }
+        2 -> decimalPart.toLongOrNull() ?: return null  // e.g., ".50" becomes 50
         else -> return null  // More than 2 decimals should have been rejected by regex
     }
 
-    val totalMinorUnits = integerMinorUnits + decimalMinorUnits
+    val totalMinorUnits = try {
+        Math.addExact(integerMinorUnits, decimalMinorUnits)
+    } catch (e: ArithmeticException) {
+        return null  // Overflow on addition
+    }
     return Money(totalMinorUnits, currency)
 }
