@@ -1,12 +1,25 @@
 package com.kharcha.app
 
 import android.app.Application
+import androidx.hilt.work.HiltWorkerFactory
+import androidx.work.Configuration
 import dagger.hilt.android.HiltAndroidApp
+import javax.inject.Inject
 
 /**
- * Placeholder application class so the manifest's android:name resolves and the
- * Hilt component graph has a root. Task 6 fleshes this out (SMS ingestion wiring,
- * WorkManager configuration, etc.) — extend this class there rather than replacing it.
+ * Application root for the Hilt component graph. Also supplies WorkManager's
+ * [Configuration] so that [com.kharcha.app.ingest.IngestWorker] and
+ * [com.kharcha.app.ingest.BackfillWorker] — both `@HiltWorker`s — get their
+ * dependencies injected via [HiltWorkerFactory] instead of needing a no-arg constructor.
  */
 @HiltAndroidApp
-class KharchaApplication : Application()
+class KharchaApplication : Application(), Configuration.Provider {
+
+    @Inject
+    lateinit var workerFactory: HiltWorkerFactory
+
+    override val workManagerConfiguration: Configuration
+        get() = Configuration.Builder()
+            .setWorkerFactory(workerFactory)
+            .build()
+}
