@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -17,9 +18,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.kharcha.app.dashboard.CategorySpend
-import com.kharcha.app.ui.theme.KharchaColors
 import com.kharcha.app.ui.theme.KharchaSpacing
-import com.kharcha.app.ui.theme.KharchaTypography
 import com.kharcha.app.ui.theme.MoneyText
 
 /**
@@ -35,7 +34,7 @@ fun CategoryBreakdown(
     Column(modifier = modifier.fillMaxWidth()) {
         categories.forEachIndexed { index, spend ->
             if (index > 0) {
-                HorizontalDivider(color = KharchaColors.outline)
+                HorizontalDivider(color = MaterialTheme.colorScheme.outline)
             }
             Row(
                 modifier = Modifier
@@ -52,12 +51,12 @@ fun CategoryBreakdown(
                     )
                     Text(
                         text = spend.categoryName,
-                        style = KharchaTypography.bodyLarge,
-                        color = KharchaColors.onSurface,
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier.padding(start = KharchaSpacing.sm),
                     )
                 }
-                MoneyText(money = spend.total, color = KharchaColors.onSurface)
+                MoneyText(money = spend.total, color = MaterialTheme.colorScheme.onSurface)
             }
         }
     }

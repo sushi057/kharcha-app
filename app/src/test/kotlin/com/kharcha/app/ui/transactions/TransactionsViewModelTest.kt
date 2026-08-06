@@ -116,7 +116,31 @@ class TransactionsViewModelTest {
         categoryDao: FakeCategoryDao = FakeCategoryDao(categories),
         ruleDao: FakeRuleDao = FakeRuleDao(),
     ): Triple<TransactionsViewModel, FakeTransactionDao, FakeRuleDao> =
-        Triple(TransactionsViewModel(fakeDao, categoryDao, ruleDao), fakeDao, ruleDao)
+        Triple(
+            TransactionsViewModel(
+                transactionDao = fakeDao,
+                categoryDao = categoryDao,
+                ruleDao = ruleDao,
+                zone = kotlinx.datetime.TimeZone.UTC,
+                reparseService = com.kharcha.data.ReparseService(
+                    rawMessageDao = object : com.kharcha.data.RawMessageDao {
+                        override suspend fun insertIgnoringDuplicates(message: com.kharcha.data.RawMessage): Long = -1L
+                        override suspend fun findNearDuplicate(sender: String, body: String, fromEpochMillis: Long, toEpochMillis: Long): com.kharcha.data.RawMessage? = null
+                        override suspend fun markIgnored(id: Long) = Unit
+                        override suspend fun count(): Int = 0
+                        override suspend fun getAll(): List<com.kharcha.data.RawMessage> = emptyList()
+                        override fun observeUnparsed(): Flow<List<com.kharcha.data.RawMessage>> = MutableStateFlow(emptyList())
+                        override suspend fun markDismissed(id: Long) = Unit
+                    },
+                    transactionDao = fakeDao,
+                    ruleset = com.kharcha.parser.SblAlertRuleset,
+                    categorizer = com.kharcha.data.Categorizer(emptyList()),
+                ),
+                ioDispatcher = testDispatcher,
+            ),
+            fakeDao,
+            ruleDao,
+        )
 
     @Test
     fun `setting a category marks it as a manual override`() = runTest {

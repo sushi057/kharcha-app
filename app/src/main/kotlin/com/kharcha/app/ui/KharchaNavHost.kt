@@ -44,12 +44,20 @@ sealed class KharchaDestination(val route: String, val label: String, val icon: 
     data object Budgets : KharchaDestination("budgets", "Budgets", Icons.Filled.AccountBalanceWallet)
 }
 
-private val kharchaDestinations = listOf<KharchaDestination>(
+internal val kharchaDestinations = listOf<KharchaDestination>(
     KharchaDestination.Dashboard,
     KharchaDestination.Transactions,
     KharchaDestination.Unparsed,
     KharchaDestination.Budgets,
 )
+
+/**
+ * The destination the app opens on. Must be the same destination as the first
+ * entry of [kharchaDestinations] — otherwise the app launches on a tab that is
+ * not the one the bottom bar highlights first. Enforced by
+ * [com.kharcha.app.ui.KharchaNavHostTest].
+ */
+internal val kharchaStartDestination: KharchaDestination = KharchaDestination.Dashboard
 
 @Composable
 fun KharchaNavHost(navController: NavHostController = rememberNavController()) {
@@ -95,7 +103,7 @@ fun KharchaNavHost(navController: NavHostController = rememberNavController()) {
     ) { innerPadding ->
         NavHost(
             navController = navController,
-            startDestination = KharchaDestination.Transactions.route,
+            startDestination = kharchaStartDestination.route,
             modifier = Modifier.padding(innerPadding),
         ) {
             composable(KharchaDestination.Dashboard.route) {

@@ -20,7 +20,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.kharcha.data.CategoryEntity
 import com.kharcha.data.TransactionEntity
-import com.kharcha.app.ui.theme.KharchaColors
+import com.kharcha.app.ui.theme.KharchaSemantics
 import com.kharcha.app.ui.theme.KharchaSpacing
 import com.kharcha.app.ui.theme.MoneyText
 import com.kharcha.parser.Direction
@@ -40,9 +40,9 @@ fun TransactionRow(
     modifier: Modifier = Modifier,
 ) {
     val amountColor = if (transaction.direction == Direction.DEBIT) {
-        KharchaColors.debit
+        KharchaSemantics.debit
     } else {
-        KharchaColors.credit
+        KharchaSemantics.credit
     }
     val sign = if (transaction.direction == Direction.DEBIT) "-" else "+"
     val money = Money(transaction.amountMinorUnits, transaction.currency)

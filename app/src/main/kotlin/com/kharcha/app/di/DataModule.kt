@@ -16,8 +16,10 @@ import com.kharcha.app.notify.NotificationPoster
 import com.kharcha.data.BudgetAlertStateDao
 import com.kharcha.data.BudgetDao
 import com.kharcha.data.CategoryDao
+import com.kharcha.data.Categorizer
 import com.kharcha.data.KharchaDatabase
 import com.kharcha.data.RawMessageDao
+import com.kharcha.data.ReparseService
 import com.kharcha.data.RuleDao
 import com.kharcha.data.TransactionDao
 import com.kharcha.parser.SblAlertRuleset
@@ -27,9 +29,18 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.datetime.Clock
 import kotlinx.datetime.TimeZone
+import javax.inject.Qualifier
 import javax.inject.Singleton
+
+/** Marks the app's IO dispatcher, so a ViewModel can move DB work off the main thread. */
+@Qualifier
+@Retention(AnnotationRetention.BINARY)
+annotation class IoDispatcher
 
 @Module
 @InstallIn(SingletonComponent::class)
@@ -92,6 +103,34 @@ object DataModule {
         @ApplicationContext context: Context,
         backfillState: BackfillState,
     ): BackfillGate = WorkManagerBackfillGate(context, backfillState)
+
+    /**
+     * Task 6's [com.kharcha.data.ReparseService] was never wired up: not provided here, not
+     * injected anywhere, `reparseAll()` never called from `:app`. That made spec success
+     * criterion 4 ("Improving a rule re-categorizes history without losing manual
+     * overrides") unreachable and left the "keep every raw message forever" storage cost
+     * buying nothing. The categorizer is built per run from the *current* rule set — see
+     * [ReparseService.categorizerFactory].
+     */
+    @Provides
+    @Singleton
+    fun provideReparseService(
+        rawMessageDao: RawMessageDao,
+        transactionDao: TransactionDao,
+        ruleset: SenderRuleset,
+        ruleDao: RuleDao,
+    ): ReparseService = ReparseService(
+        rawMessageDao = rawMessageDao,
+        transactionDao = transactionDao,
+        ruleset = ruleset,
+        categorizerFactory = { Categorizer(ruleDao.observeAll().first()) },
+    )
+
+    /** Where re-parse and other DB-heavy fan-outs run — never the UI thread. */
+    @Provides
+    @Singleton
+    @IoDispatcher
+    fun provideIoDispatcher(): CoroutineDispatcher = Dispatchers.IO
 
     @Provides
     @Singleton

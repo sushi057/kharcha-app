@@ -43,6 +43,7 @@ room-ktx = { module = "androidx.room:room-ktx", version.ref = "room" }
 room-compiler = { module = "androidx.room:room-compiler", version.ref = "room" }
 
 work-runtime = { module = "androidx.work:work-runtime-ktx", version.ref = "work-runtime" }
+work-testing = { module = "androidx.work:work-testing", version.ref = "work-runtime" }
 datastore-preferences = { module = "androidx.datastore:datastore-preferences", version.ref = "datastore" }
 
 hilt-android = { module = "com.google.dagger:hilt-android", version.ref = "hilt" }

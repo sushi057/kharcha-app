@@ -50,7 +50,8 @@ private fun groupThousands(value: Long): String {
 /**
  * Renders [money] using [formatMoney] with tabular figures so amounts line
  * up in a list. Pass [color] to color debit/credit amounts differently —
- * see [KharchaColors.debit] and [KharchaColors.credit].
+ * see [KharchaSemantics.debit] and [KharchaSemantics.credit], which follow the
+ * active scheme rather than a fixed palette constant.
  */
 @Composable
 fun MoneyText(
@@ -65,4 +66,33 @@ fun MoneyText(
         color = color,
         style = style,
     )
+}
+
+/** Parses a user-typed decimal amount string into minor units without Double. */
+fun parseAmountMinorUnits(text: String): Long? {
+    val trimmed = text.trim()
+    if (trimmed.isEmpty()) return null
+    if (!trimmed.matches(Regex("^\\d+(\\.\\d{1,2})?$"))) return null
+    val parts = trimmed.split(".")
+    val major = parts[0].toLongOrNull() ?: return null
+    val minor = when (val fraction = parts.getOrNull(1)) {
+        null -> 0L
+        else -> fraction.padEnd(2, '0').toLongOrNull() ?: return null
+    }
+    return major * 100 + minor
+}
+
+/**
+ * Renders [minorUnits] as the plain number a user would type back into an amount field —
+ * "500" or "500.50", no currency prefix and no thousands separators, so it round-trips
+ * through [parseAmountMinorUnits] unchanged. Displaying `minorUnits / 100` instead drops
+ * the minor units and silently rewrites the value the next time the field is saved.
+ */
+fun formatMinorUnitsPlain(minorUnits: Long): String {
+    val negative = minorUnits < 0
+    val abs = if (negative) -minorUnits else minorUnits
+    val major = abs / 100
+    val fraction = abs % 100
+    val sign = if (negative) "-" else ""
+    return if (fraction == 0L) "$sign$major" else "$sign$major.${fraction.toString().padStart(2, '0')}"
 }

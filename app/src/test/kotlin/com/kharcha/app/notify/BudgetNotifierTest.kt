@@ -132,32 +132,93 @@ class BudgetNotifierTest {
     fun `crossing the threshold fires once, not on every subsequent transaction`() = runTest {
         val notifier = newNotifier(limit = 1000_00L, thresholdPercent = 80)
         spend(850_00L)
-        assertEquals(BudgetAlert.THRESHOLD_CROSSED, notifier.checkAndNotify(categoryId))
+        assertEquals(BudgetAlert.THRESHOLD_CROSSED, notifier.checkAndNotify(categoryId, Currency.NPR))
         spend(20_00L)
-        assertNull(notifier.checkAndNotify(categoryId))
+        assertNull(notifier.checkAndNotify(categoryId, Currency.NPR))
     }
 
     @Test
     fun `exceeding the limit fires a separate alert`() = runTest {
         val notifier = newNotifier(limit = 1000_00L, thresholdPercent = 80)
         spend(1_100_00L)
-        assertEquals(BudgetAlert.EXCEEDED, notifier.checkAndNotify(categoryId))
+        assertEquals(BudgetAlert.EXCEEDED, notifier.checkAndNotify(categoryId, Currency.NPR))
     }
 
     @Test
     fun `exceeding after already crossing the threshold still fires EXCEEDED once`() = runTest {
         val notifier = newNotifier(limit = 1000_00L, thresholdPercent = 80)
         spend(850_00L)
-        assertEquals(BudgetAlert.THRESHOLD_CROSSED, notifier.checkAndNotify(categoryId))
+        assertEquals(BudgetAlert.THRESHOLD_CROSSED, notifier.checkAndNotify(categoryId, Currency.NPR))
         spend(300_00L)
-        assertEquals(BudgetAlert.EXCEEDED, notifier.checkAndNotify(categoryId))
-        assertNull(notifier.checkAndNotify(categoryId))
+        assertEquals(BudgetAlert.EXCEEDED, notifier.checkAndNotify(categoryId, Currency.NPR))
+        assertNull(notifier.checkAndNotify(categoryId, Currency.NPR))
     }
 
     @Test
     fun `a budget with no spend this month is at zero, not an error`() = runTest {
         val notifier = newNotifier(limit = 1000_00L, thresholdPercent = 80)
-        assertNull(notifier.checkAndNotify(categoryId))
+        assertNull(notifier.checkAndNotify(categoryId, Currency.NPR))
+    }
+
+    /**
+     * Reviewer's Important 3. Task 11's fix round 2 made a second budget row per
+     * `(categoryId, currency)` legal, but [BudgetNotifier] still selected a budget with
+     * `firstOrNull { it.categoryId == categoryId }` — whichever row the DAO happened to
+     * return first — then filtered spend and keyed alert state by *that* row's currency.
+     * With an NPR 20,000 and a USD 100 budget on Shopping, a USD 95 transaction picked the
+     * NPR budget, compared NPR spend (0) to the NPR limit, and never alerted. The USD
+     * budget could not fire in any month.
+     */
+    @Test
+    fun `a category with two currencies evaluates the triggering transaction's own budget`() = runTest {
+        transactionDao = FakeTransactionDao()
+        alertStateDao = FakeBudgetAlertStateDao()
+        val budgetDao = FakeBudgetDao(
+            listOf(
+                BudgetEntity(id = 1L, categoryId = categoryId, monthlyLimitMinorUnits = 20_000_00L, currency = Currency.NPR, alertThresholdPercent = 80),
+                BudgetEntity(id = 2L, categoryId = categoryId, monthlyLimitMinorUnits = 100_00L, currency = Currency.USD, alertThresholdPercent = 80),
+            )
+        )
+        val notifier = BudgetNotifier(
+            budgetDao = budgetDao,
+            categoryDao = FakeCategoryDao(listOf(category)),
+            transactionDao = transactionDao,
+            alertStateDao = alertStateDao,
+            clock = fixedClock,
+            zone = zone,
+            poster = NoopPoster,
+        )
+
+        spend(95_00L, Currency.USD)
+
+        assertEquals(
+            BudgetAlert.THRESHOLD_CROSSED,
+            notifier.checkAndNotify(categoryId, Currency.USD),
+            "USD 95 against a USD 100 budget must cross the 80% threshold",
+        )
+        // The NPR budget, untouched by that USD spend, must stay silent.
+        assertNull(notifier.checkAndNotify(categoryId, Currency.NPR))
+    }
+
+    @Test
+    fun `alert state is keyed by the triggering currency, so each currency fires independently`() = runTest {
+        transactionDao = FakeTransactionDao()
+        alertStateDao = FakeBudgetAlertStateDao()
+        val budgetDao = FakeBudgetDao(
+            listOf(
+                BudgetEntity(id = 1L, categoryId = categoryId, monthlyLimitMinorUnits = 1000_00L, currency = Currency.NPR, alertThresholdPercent = 80),
+                BudgetEntity(id = 2L, categoryId = categoryId, monthlyLimitMinorUnits = 100_00L, currency = Currency.USD, alertThresholdPercent = 80),
+            )
+        )
+        val notifier = BudgetNotifier(
+            budgetDao, FakeCategoryDao(listOf(category)), transactionDao, alertStateDao, fixedClock, zone, NoopPoster,
+        )
+
+        spend(900_00L, Currency.NPR)
+        assertEquals(BudgetAlert.THRESHOLD_CROSSED, notifier.checkAndNotify(categoryId, Currency.NPR))
+
+        spend(95_00L, Currency.USD)
+        assertEquals(BudgetAlert.THRESHOLD_CROSSED, notifier.checkAndNotify(categoryId, Currency.USD))
     }
 
     @Test
@@ -177,9 +238,9 @@ class BudgetNotifierTest {
 
         val firstNotifier = BudgetNotifier(budgetDao, categoryDao, transactionDao, alertStateDao, fixedClock, zone, NoopPoster)
         spend(850_00L)
-        assertEquals(BudgetAlert.THRESHOLD_CROSSED, firstNotifier.checkAndNotify(categoryId))
+        assertEquals(BudgetAlert.THRESHOLD_CROSSED, firstNotifier.checkAndNotify(categoryId, Currency.NPR))
 
         val secondNotifier = BudgetNotifier(budgetDao, categoryDao, transactionDao, alertStateDao, fixedClock, zone, NoopPoster)
-        assertNull(secondNotifier.checkAndNotify(categoryId))
+        assertNull(secondNotifier.checkAndNotify(categoryId, Currency.NPR))
     }
 }

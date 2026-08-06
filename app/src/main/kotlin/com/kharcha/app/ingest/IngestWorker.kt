@@ -31,8 +31,11 @@ class IngestWorker @AssistedInject constructor(
 
         val result = messageIngestor.ingest(sender, body, receivedAtEpochMillis)
         val categoryId = result.categoryId
-        if (result.outcome == IngestOutcome.STORED && categoryId != null) {
-            budgetNotifier.checkAndNotify(categoryId)
+        val currency = result.currency
+        if (result.outcome == IngestOutcome.STORED && categoryId != null && currency != null) {
+            // The currency matters: a category can hold one budget per currency, and only
+            // the one matching this transaction's currency may be evaluated.
+            budgetNotifier.checkAndNotify(categoryId, currency)
         }
         return Result.success()
     }

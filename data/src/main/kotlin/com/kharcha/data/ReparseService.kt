@@ -26,9 +26,24 @@ class ReparseService(
     private val rawMessageDao: RawMessageDao,
     private val transactionDao: TransactionDao,
     private val ruleset: SenderRuleset,
-    private val categorizer: Categorizer
+    /**
+     * Built fresh at the start of every [reparseAll] run rather than captured once at
+     * construction. The whole point of re-parsing is that the rule set just changed —
+     * a [Categorizer] frozen at injection time would re-apply the *old* rules and
+     * silently do nothing useful.
+     */
+    private val categorizerFactory: suspend () -> Categorizer,
 ) {
+    /** Convenience for callers with a fixed rule set (tests). */
+    constructor(
+        rawMessageDao: RawMessageDao,
+        transactionDao: TransactionDao,
+        ruleset: SenderRuleset,
+        categorizer: Categorizer,
+    ) : this(rawMessageDao, transactionDao, ruleset, { categorizer })
+
     suspend fun reparseAll() {
+        val categorizer = categorizerFactory()
         for (raw in rawMessageDao.getAll()) {
             if (raw.ignored) continue
 

@@ -15,6 +15,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -26,10 +27,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.hilt.navigation.compose.hiltViewModel
-import com.kharcha.app.ui.theme.KharchaColors
+import com.kharcha.app.ui.theme.KharchaSemantics
 import com.kharcha.app.ui.theme.KharchaSpacing
-import com.kharcha.app.ui.theme.KharchaTypography
 import com.kharcha.app.ui.theme.MoneyText
+import com.kharcha.app.ui.theme.formatMinorUnitsPlain
+import com.kharcha.app.ui.theme.parseAmountMinorUnits
 import com.kharcha.parser.Currency
 import com.kharcha.parser.Money
 
@@ -83,15 +85,15 @@ fun BudgetsScreenContent(
         item {
             Text(
                 text = "Budgets",
-                style = KharchaTypography.headlineMedium,
-                color = KharchaColors.onBackground,
+                style = MaterialTheme.typography.headlineMedium,
+                color = MaterialTheme.colorScheme.onBackground,
             )
             Spacer(modifier = Modifier.height(KharchaSpacing.md))
         }
 
         items(state.rows, key = { "${it.categoryId}-${it.currency}" }) { row ->
             BudgetRowItem(row = row, onClick = { editingRow = row })
-            HorizontalDivider(color = KharchaColors.outline)
+            HorizontalDivider(color = MaterialTheme.colorScheme.outline)
         }
     }
 
@@ -130,33 +132,33 @@ private fun BudgetRowItem(row: BudgetRow, onClick: () -> Unit) {
             Column {
                 Text(
                     text = row.categoryName,
-                    style = KharchaTypography.bodyLarge,
-                    color = KharchaColors.onSurface,
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurface,
                 )
                 if (row.isOverBudget) {
                     Text(
                         text = "Over budget",
-                        style = KharchaTypography.labelMedium,
-                        color = KharchaColors.debit,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = KharchaSemantics.debit,
                     )
                 }
             }
             Column(horizontalAlignment = androidx.compose.ui.Alignment.End) {
                 MoneyText(
                     money = Money(row.spentMinorUnits, row.currency),
-                    color = if (row.isOverBudget) KharchaColors.debit else KharchaColors.onSurface,
+                    color = if (row.isOverBudget) KharchaSemantics.debit else MaterialTheme.colorScheme.onSurface,
                 )
                 if (row.limitMinorUnits != null) {
                     Text(
                         text = "of ${com.kharcha.app.ui.theme.formatMoney(Money(row.limitMinorUnits, row.currency))}",
-                        style = KharchaTypography.labelMedium,
-                        color = KharchaColors.onSurfaceVariant,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 } else {
                     Text(
                         text = "No budget set",
-                        style = KharchaTypography.labelMedium,
-                        color = KharchaColors.onSurfaceVariant,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
@@ -168,12 +170,15 @@ private fun BudgetRowItem(row: BudgetRow, onClick: () -> Unit) {
             LinearProgressIndicator(
                 progress = { progress },
                 modifier = Modifier.fillMaxWidth(),
-                color = if (row.isOverBudget) KharchaColors.debit else KharchaColors.credit,
-                trackColor = KharchaColors.surfaceVariant,
+                color = if (row.isOverBudget) KharchaSemantics.debit else KharchaSemantics.credit,
+                trackColor = MaterialTheme.colorScheme.surfaceVariant,
             )
         }
     }
 }
+
+/** Shown when Save is pressed with input the dialog cannot turn into a budget. */
+const val BUDGET_INVALID_INPUT_MESSAGE = "Enter a valid amount and a threshold between 1 and 100"
 
 @Composable
 private fun BudgetEditDialog(
@@ -184,12 +189,17 @@ private fun BudgetEditDialog(
 ) {
     // Keyed on (categoryId, currency), not categoryId alone — switching between two rows
     // for the same category (e.g. its NPR row and its USD row) must reset these fields.
+    //
+    // The limit is rendered with formatMinorUnitsPlain, not `it / 100`: integer division
+    // dropped the minor units, so an NPR 500.50 budget showed as "500" and Save quietly
+    // rewrote it to NPR 500.00. Money keeps its minor units through the whole round trip.
     var limitText by remember(row.categoryId, row.currency) {
-        mutableStateOf(row.limitMinorUnits?.let { (it / 100).toString() } ?: "")
+        mutableStateOf(row.limitMinorUnits?.let { formatMinorUnitsPlain(it) } ?: "")
     }
     var thresholdText by remember(row.categoryId, row.currency) {
         mutableStateOf(row.alertThresholdPercent.toString())
     }
+    var showError by remember(row.categoryId, row.currency) { mutableStateOf(false) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -198,25 +208,45 @@ private fun BudgetEditDialog(
             Column {
                 OutlinedTextField(
                     value = limitText,
-                    onValueChange = { limitText = it },
+                    onValueChange = {
+                        limitText = it
+                        showError = false
+                    },
+                    isError = showError,
                     label = { Text("Monthly limit (${row.currency.name})") },
                 )
                 Spacer(modifier = Modifier.height(KharchaSpacing.sm))
                 OutlinedTextField(
                     value = thresholdText,
-                    onValueChange = { thresholdText = it },
+                    onValueChange = {
+                        thresholdText = it
+                        showError = false
+                    },
+                    isError = showError,
                     label = { Text("Alert threshold %") },
                 )
+                if (showError) {
+                    Spacer(modifier = Modifier.height(KharchaSpacing.xs))
+                    // Save used to be a silent no-op on invalid input: the dialog just sat
+                    // there with no indication of why nothing happened.
+                    Text(
+                        text = BUDGET_INVALID_INPUT_MESSAGE,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
             }
         },
         confirmButton = {
             TextButton(onClick = {
-                val majorUnits = limitText.toLongOrNull()
+                val limitMinorUnits = parseAmountMinorUnits(limitText)
                 val thresholdPercent = thresholdText.toIntOrNull()
-                if (majorUnits != null && majorUnits > 0 && thresholdPercent != null &&
+                if (limitMinorUnits != null && limitMinorUnits > 0 && thresholdPercent != null &&
                     thresholdPercent in 1..100
                 ) {
-                    onSave(majorUnits * 100, thresholdPercent)
+                    onSave(limitMinorUnits, thresholdPercent)
+                } else {
+                    showError = true
                 }
             }) {
                 Text("Save")

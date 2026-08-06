@@ -7,6 +7,7 @@ import com.kharcha.data.RuleDao
 import com.kharcha.data.TransactionDao
 import com.kharcha.data.TransactionEntity
 import com.kharcha.data.contentHashOf
+import com.kharcha.parser.Currency
 import com.kharcha.parser.ParseResult
 import com.kharcha.parser.ParsedTransaction
 import com.kharcha.parser.SenderRuleset
@@ -18,10 +19,16 @@ enum class IngestOutcome { STORED, DUPLICATE, IGNORED, UNPARSED, WRONG_SENDER }
 
 /**
  * [outcome] plus, for a [IngestOutcome.STORED] result, the category the new transaction
- * landed in (`null` if uncategorized). Task 11's [com.kharcha.app.notify.BudgetNotifier]
- * needs this signal — [IngestWorker] previously discarded [outcome] entirely.
+ * landed in (`null` if uncategorized) and the [currency] it was denominated in. Task 11's
+ * [com.kharcha.app.notify.BudgetNotifier] needs both: a category can hold one budget per
+ * currency, and only the budget matching *this* transaction's currency may be evaluated.
+ * NPR and USD are never summed or converted, here or anywhere else.
  */
-data class IngestResult(val outcome: IngestOutcome, val categoryId: Long? = null)
+data class IngestResult(
+    val outcome: IngestOutcome,
+    val categoryId: Long? = null,
+    val currency: Currency? = null,
+)
 
 /**
  * Owns the entire SMS-to-transaction pipeline: sender filtering, dedup, parsing,
@@ -72,6 +79,33 @@ class MessageIngestor(
             return IngestResult(IngestOutcome.WRONG_SENDER)
         }
 
+        // Exact-content dedup is the primary gate, but it cannot cover the first-run
+        // overlap window on its own. SmsReceiver hashes SmsMessage.timestampMillis (the
+        // SMSC timestamp); BackfillWorker hashes Telephony.Sms.DATE (the device's own
+        // reception time for the inbox row). For one and the same message those differ by
+        // seconds, so the hashes differ and the unique index never fires — the user grants
+        // permission, the backfill starts scanning, an SBL_Alert arrives and is ingested
+        // live, the provider has already written it to the inbox, the cursor reaches it,
+        // and the same transaction is counted twice in month-to-date spend.
+        //
+        // Chosen fix: keep the exact hash exactly as it is (it stays length-prefixed
+        // against delimiter collisions, per Task 5) and add a secondary
+        // (sender, body, ±NEAR_DUPLICATE_WINDOW_MILLIS) check that only runs when the hash
+        // misses. Normalizing the two timestamp sources is not possible — they are
+        // genuinely different clocks — and a coarse time bucket would still split a pair
+        // that straddles a bucket boundary while merging unrelated messages inside one.
+        // The window is deliberately short: two genuinely distinct transactions can share
+        // a body (same merchant, same amount, a different day) and must both be stored.
+        val nearDuplicate = rawMessageDao.findNearDuplicate(
+            sender = sender,
+            body = body,
+            fromEpochMillis = receivedAtEpochMillis - NEAR_DUPLICATE_WINDOW_MILLIS,
+            toEpochMillis = receivedAtEpochMillis + NEAR_DUPLICATE_WINDOW_MILLIS,
+        )
+        if (nearDuplicate != null) {
+            return IngestResult(IngestOutcome.DUPLICATE)
+        }
+
         val contentHash = contentHashOf(sender, body, receivedAtEpochMillis)
         val rawMessage = RawMessage(
             sender = sender,
@@ -88,7 +122,7 @@ class MessageIngestor(
             is ParseResult.Parsed -> {
                 val categoryId = categorize(result.transaction, categorizer)
                 transactionDao.insert(result.transaction.toEntity(rawMessageId, categoryId))
-                IngestResult(IngestOutcome.STORED, categoryId)
+                IngestResult(IngestOutcome.STORED, categoryId, result.transaction.amount.currency)
             }
 
             is ParseResult.Ignored -> {
@@ -131,4 +165,15 @@ class MessageIngestor(
             excludedFromSpending = false,
             isManualEntry = false
         )
+
+    companion object {
+        /**
+         * How far apart the SMSC timestamp and the inbox row's reception time may be and
+         * still describe the same delivery. Ten minutes comfortably covers normal delivery
+         * skew (seconds) plus a phone that was briefly out of coverage, while staying far
+         * below the gap between two real, separately-initiated payments to the same
+         * merchant for the same amount.
+         */
+        internal const val NEAR_DUPLICATE_WINDOW_MILLIS = 10L * 60 * 1000
+    }
 }

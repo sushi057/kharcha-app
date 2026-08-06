@@ -84,6 +84,8 @@ class UnparsedViewModel @Inject constructor(
                     merchant = merchant,
                     balanceAfterMinorUnits = null,
                     categoryId = categoryId,
+                    // See TransactionsViewModel.addManualTransaction: null means "the user
+                    // never chose", which must not be recorded as a manual override.
                     categoryIsManualOverride = categoryId != null,
                     excludedFromSpending = false,
                     isManualEntry = true,

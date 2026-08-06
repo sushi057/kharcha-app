@@ -30,11 +30,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.kharcha.app.ui.theme.KharchaSpacing
-import java.text.SimpleDateFormat
+import kotlinx.datetime.Instant
+import kotlinx.datetime.TimeZone
+import kotlinx.datetime.toLocalDateTime
 import java.util.Calendar
-import java.util.Date
-import java.util.Locale
-import java.util.TimeZone
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -98,7 +97,9 @@ fun TransactionsScreen(
                     onSetDateRange = viewModel::setDateRangeFilter,
                 )
 
-                val grouped = state.filteredTransactions.groupBy { dayLabel(it.occurredAtEpochMillis) }
+                val grouped = state.filteredTransactions.groupBy {
+                    dayLabel(it.occurredAtEpochMillis, viewModel.zone)
+                }
                 LazyColumn(modifier = Modifier.fillMaxSize()) {
                     grouped.forEach { (day, transactions) ->
                         stickyHeader(key = "header-$day") {
@@ -174,10 +175,20 @@ fun TransactionsScreen(
     }
 }
 
-private fun dayLabel(epochMillis: Long): String {
-    val formatter = SimpleDateFormat("EEE, d MMM yyyy", Locale.getDefault())
-    formatter.timeZone = TimeZone.getDefault()
-    return formatter.format(Date(epochMillis))
+/**
+ * Which calendar day a transaction falls on, in the app's single injected [zone] — the same
+ * one Dashboard, Budgets and the notifier use. This used to resolve the day with
+ * `SimpleDateFormat` + `TimeZone.getDefault()`, a second, independent definition of "today"
+ * that could disagree with every other screen.
+ *
+ * Formatted from a [kotlinx.datetime.LocalDate] rather than a [Date] so the zone applied to
+ * the instant and the zone the label is written in cannot drift apart.
+ */
+internal fun dayLabel(epochMillis: Long, zone: TimeZone): String {
+    val date = Instant.fromEpochMilliseconds(epochMillis).toLocalDateTime(zone).date
+    val dayOfWeek = date.dayOfWeek.name.lowercase().replaceFirstChar { it.uppercase() }.take(3)
+    val month = date.month.name.lowercase().replaceFirstChar { it.uppercase() }.take(3)
+    return "$dayOfWeek, ${date.dayOfMonth} $month ${date.year}"
 }
 
 /**

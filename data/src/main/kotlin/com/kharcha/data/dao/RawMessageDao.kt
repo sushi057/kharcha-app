@@ -11,6 +11,30 @@ interface RawMessageDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertIgnoringDuplicates(message: RawMessage): Long
 
+    /**
+     * Secondary dedup gate for the backfill/live-receiver overlap window: the same message
+     * seen through `SmsMessage.timestampMillis` and through `Telephony.Sms.DATE` carries
+     * two slightly different timestamps, so its content hashes differ and the unique index
+     * on `contentHash` does not fire. Matching on `(sender, body)` inside a narrow time
+     * window catches exactly that pair without merging two genuinely distinct transactions
+     * that happen to share a body on different days — see
+     * [com.kharcha.app.ingest.MessageIngestor].
+     */
+    @Query(
+        """
+        SELECT * FROM raw_messages
+        WHERE sender = :sender AND body = :body
+          AND receivedAtEpochMillis BETWEEN :fromEpochMillis AND :toEpochMillis
+        LIMIT 1
+        """
+    )
+    suspend fun findNearDuplicate(
+        sender: String,
+        body: String,
+        fromEpochMillis: Long,
+        toEpochMillis: Long,
+    ): RawMessage?
+
     @Query("UPDATE raw_messages SET ignored = 1 WHERE id = :id")
     suspend fun markIgnored(id: Long)
 

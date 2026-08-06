@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -16,9 +17,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.kharcha.app.dashboard.MerchantSpend
-import com.kharcha.app.ui.theme.KharchaColors
 import com.kharcha.app.ui.theme.KharchaSpacing
-import com.kharcha.app.ui.theme.KharchaTypography
 import com.kharcha.app.ui.theme.MoneyText
 
 /**
@@ -85,11 +84,11 @@ private fun SectionHeader(title: String) {
     Column {
         Text(
             text = title,
-            style = KharchaTypography.titleLarge,
-            color = KharchaColors.onBackground,
+            style = MaterialTheme.typography.titleLarge,
+            color = MaterialTheme.colorScheme.onBackground,
         )
         HorizontalDivider(
-            color = KharchaColors.outline,
+            color = MaterialTheme.colorScheme.outline,
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(top = KharchaSpacing.xs),
@@ -107,9 +106,9 @@ private fun TopMerchantRow(merchant: MerchantSpend) {
     ) {
         Text(
             text = merchant.merchant,
-            style = KharchaTypography.bodyMedium,
-            color = KharchaColors.onSurfaceVariant,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        MoneyText(money = merchant.total, color = KharchaColors.onSurfaceVariant)
+        MoneyText(money = merchant.total, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }

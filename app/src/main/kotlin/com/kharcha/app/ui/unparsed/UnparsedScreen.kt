@@ -88,10 +88,26 @@ fun UnparsedScreen(
                 )
                 selectedForManualEntry = null
             },
-            initialMerchantText = prefillFrom.body,
+            initialMerchantText = merchantHintFrom(prefillFrom.body),
         )
     }
 }
+
+/**
+ * Turns a raw SMS body into something sane to prefill the Merchant field with.
+ * The whole body is never appropriate: it is multi-line, up to 160+ characters,
+ * and would be written verbatim into both `merchant` and `remark`.
+ */
+internal fun merchantHintFrom(body: String): String {
+    val singleLine = body.trim().replace(Regex("\\s+"), " ")
+    if (singleLine.length <= MERCHANT_HINT_MAX_LENGTH) return singleLine
+    // Prefer a word boundary so the hint reads as words, not a mid-word cut.
+    val window = singleLine.take(MERCHANT_HINT_MAX_LENGTH)
+    val lastSpace = window.lastIndexOf(' ')
+    return if (lastSpace >= MERCHANT_HINT_MAX_LENGTH / 2) window.take(lastSpace) else window
+}
+
+private const val MERCHANT_HINT_MAX_LENGTH = 40
 
 @Composable
 private fun UnparsedMessageCard(

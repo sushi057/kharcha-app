@@ -4,14 +4,14 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
-import com.kharcha.app.ui.theme.KharchaColors
+import com.kharcha.app.ui.theme.KharchaSemantics
 import com.kharcha.app.ui.theme.KharchaSpacing
-import com.kharcha.app.ui.theme.KharchaTypography
 import com.kharcha.app.ui.theme.MoneyText
 import com.kharcha.parser.Currency
 import com.kharcha.parser.Money
@@ -28,8 +28,8 @@ fun SpendSummaryCard(
     modifier: Modifier = Modifier,
 ) {
     Surface(
-        color = KharchaColors.surface,
-        contentColor = KharchaColors.onSurface,
+        color = MaterialTheme.colorScheme.surface,
+        contentColor = MaterialTheme.colorScheme.onSurface,
         modifier = modifier.fillMaxWidth(),
     ) {
         Column(
@@ -40,14 +40,14 @@ fun SpendSummaryCard(
         ) {
             Text(
                 text = "Spent this month",
-                style = KharchaTypography.labelMedium,
-                color = KharchaColors.onSurfaceVariant,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
 
             if (monthToDateSpend.isEmpty()) {
                 Text(
                     text = "No spending yet",
-                    style = KharchaTypography.headlineMedium,
+                    style = MaterialTheme.typography.headlineMedium,
                     textAlign = TextAlign.Start,
                 )
             } else {
@@ -56,8 +56,8 @@ fun SpendSummaryCard(
                     .forEach { (_, money) ->
                         MoneyText(
                             money = money,
-                            style = KharchaTypography.displayLarge,
-                            color = KharchaColors.debit,
+                            style = MaterialTheme.typography.displayLarge,
+                            color = KharchaSemantics.debit,
                         )
                     }
             }

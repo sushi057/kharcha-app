@@ -26,6 +26,18 @@ private class FakeRawMessageDao : RawMessageDao {
         return stored.id
     }
 
+    override suspend fun findNearDuplicate(
+        sender: String,
+        body: String,
+        fromEpochMillis: Long,
+        toEpochMillis: Long,
+    ): RawMessage? =
+        messages.firstOrNull { msg ->
+            msg.sender == sender &&
+                msg.body == body &&
+                msg.receivedAtEpochMillis in fromEpochMillis..toEpochMillis
+        }
+
     override suspend fun markIgnored(id: Long) {
         val index = messages.indexOfFirst { it.id == id }
         if (index >= 0) messages[index] = messages[index].copy(ignored = true)
@@ -125,6 +137,49 @@ class MessageIngestorTest {
         val ingestor = newIngestor()
         ingestor.ingest("SBL_Alert", qrPayment, 1_754_000_000_000L)
         assertEquals(IngestOutcome.DUPLICATE, ingestor.ingest("SBL_Alert", qrPayment, 1_754_000_000_000L).outcome)
+    }
+
+    /**
+     * Reviewer's Important 5. `SmsReceiver` hashes `SmsMessage.timestampMillis` (the SMSC
+     * timestamp) while `BackfillWorker` hashes `Telephony.Sms.DATE` (the device's reception
+     * time for the inbox row). For one and the same message those differ by seconds, so
+     * `contentHashOf(sender, body, receivedAt)` differs and the unique index never fires.
+     * In the first-run overlap window — permission granted, backfill scanning, an SBL_Alert
+     * arriving live and already written to the provider's inbox — the message was ingested
+     * twice and counted twice in month-to-date spend.
+     */
+    @Test
+    fun `the same message seen by the receiver and the backfill within seconds is one transaction`() = runTest {
+        val transactionDao = FakeTransactionDao()
+        val ingestor = newIngestor(transactionDao = transactionDao)
+
+        val smscTimestamp = 1_754_000_000_000L
+        val inboxDate = smscTimestamp + 4_000L // the provider's own reception time
+
+        assertEquals(IngestOutcome.STORED, ingestor.ingest("SBL_Alert", qrPayment, smscTimestamp).outcome)
+        assertEquals(
+            IngestOutcome.DUPLICATE,
+            ingestor.ingest("SBL_Alert", qrPayment, inboxDate).outcome,
+            "the backfill's inbox timestamp differs by seconds; this is the same message",
+        )
+        assertEquals(1, transactionDao.transactions.size)
+    }
+
+    /**
+     * The other half of the same fix: two genuinely distinct transactions can legitimately
+     * share a body (same merchant, same amount, different day). Dedup must not swallow them.
+     */
+    @Test
+    fun `an identical body on a different day is a second, separate transaction`() = runTest {
+        val transactionDao = FakeTransactionDao()
+        val ingestor = newIngestor(transactionDao = transactionDao)
+
+        val day1 = 1_754_000_000_000L
+        val day2 = day1 + 24L * 60 * 60 * 1000
+
+        assertEquals(IngestOutcome.STORED, ingestor.ingest("SBL_Alert", qrPayment, day1).outcome)
+        assertEquals(IngestOutcome.STORED, ingestor.ingest("SBL_Alert", qrPayment, day2).outcome)
+        assertEquals(2, transactionDao.transactions.size)
     }
 
     @Test

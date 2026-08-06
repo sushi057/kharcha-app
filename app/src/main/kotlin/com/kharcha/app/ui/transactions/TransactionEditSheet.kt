@@ -27,6 +27,7 @@ import androidx.compose.ui.Modifier
 import com.kharcha.data.CategoryEntity
 import com.kharcha.data.TransactionEntity
 import com.kharcha.app.ui.theme.KharchaSpacing
+import com.kharcha.app.ui.theme.parseAmountMinorUnits
 
 /**
  * Editing sheet for an existing transaction, and (when [transaction] is
@@ -98,6 +99,11 @@ fun TransactionEditSheetContent(
     var pendingCategoryPrompt by remember(transaction?.id) {
         mutableStateOf<CategoryEntity?>(null)
     }
+    // Manual-entry mode only. Deliberately starts null rather than defaulting to the
+    // first category: "a wrong transaction is worse than a missing one", and a
+    // defaulted category must never be reported as a manual override (which would make
+    // the row permanently immune to ReparseService and to every future rule).
+    var selectedCategoryId by remember(transaction?.id) { mutableStateOf<Long?>(null) }
 
     Column(modifier = Modifier.padding(KharchaSpacing.md)) {
         Text(text = if (transaction == null) "Add transaction" else "Edit transaction")
@@ -128,13 +134,22 @@ fun TransactionEditSheetContent(
         LazyRow {
             items(categories) { category ->
                 FilterChip(
-                    selected = transaction?.categoryId == category.id,
+                    selected = if (transaction != null) {
+                        transaction.categoryId == category.id
+                    } else {
+                        selectedCategoryId == category.id
+                    },
                     onClick = {
                         if (transaction != null) {
                             onSetCategory(category.id)
                             if (!merchantText.isBlank()) {
                                 pendingCategoryPrompt = category
                             }
+                        } else {
+                            // Tapping the selected chip again clears it, so the user can
+                            // get back to "no category" rather than being stuck with one.
+                            selectedCategoryId =
+                                if (selectedCategoryId == category.id) null else category.id
                         }
                     },
                     label = { Text(category.name) },
@@ -163,12 +178,14 @@ fun TransactionEditSheetContent(
             Button(
                 onClick = {
                     val amountMinorUnits = parseAmountMinorUnits(amountText) ?: return@Button
-                    val categoryId = categories.firstOrNull()?.id
                     onAddManual(
                         amountMinorUnits,
                         merchantText,
                         merchantText,
-                        categoryId,
+                        // null when the user never touched the picker — the caller turns
+                        // that into an uncategorized, non-overridden transaction that
+                        // rules and re-parse can still improve later.
+                        selectedCategoryId,
                     )
                     onDismiss()
                 },
@@ -204,18 +221,4 @@ fun TransactionEditSheetContent(
             },
         )
     }
-}
-
-/** Parses a user-typed decimal amount string into minor units without Double. */
-internal fun parseAmountMinorUnits(text: String): Long? {
-    val trimmed = text.trim()
-    if (trimmed.isEmpty()) return null
-    if (!trimmed.matches(Regex("^\\d+(\\.\\d{1,2})?$"))) return null
-    val parts = trimmed.split(".")
-    val major = parts[0].toLongOrNull() ?: return null
-    val minor = when (val fraction = parts.getOrNull(1)) {
-        null -> 0L
-        else -> fraction.padEnd(2, '0').toLongOrNull() ?: return null
-    }
-    return major * 100 + minor
 }

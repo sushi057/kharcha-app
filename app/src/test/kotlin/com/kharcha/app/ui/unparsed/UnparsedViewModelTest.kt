@@ -36,6 +36,13 @@ private class FakeRawMessageDao : RawMessageDao {
         return stored.id
     }
 
+    override suspend fun findNearDuplicate(sender: String, body: String, fromEpochMillis: Long, toEpochMillis: Long): RawMessage? =
+        messages.value.firstOrNull { msg ->
+            msg.sender == sender &&
+                msg.body == body &&
+                msg.receivedAtEpochMillis in fromEpochMillis..toEpochMillis
+        }
+
     override suspend fun markIgnored(id: Long) {
         messages.value = messages.value.map { if (it.id == id) it.copy(ignored = true) else it }
     }

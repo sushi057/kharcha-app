@@ -1,5 +1,6 @@
 package com.kharcha.app.dashboard
 
+import com.kharcha.app.ui.theme.KharchaNeutrals
 import com.kharcha.data.CategoryEntity
 import com.kharcha.data.TransactionEntity
 import com.kharcha.parser.Currency
@@ -52,7 +53,8 @@ data class DashboardAggregate(
  */
 object DashboardAggregator {
 
-    private const val UNCATEGORIZED_COLOR_ARGB = 0xFF6B5B4C.toInt()
+    /** The neutral ramp's mid step, not a second copy of its hex value. */
+    private val UNCATEGORIZED_COLOR_ARGB = KharchaNeutrals.Neutral50
     private const val DEFAULT_TOP_MERCHANT_COUNT = 5
 
     fun aggregate(

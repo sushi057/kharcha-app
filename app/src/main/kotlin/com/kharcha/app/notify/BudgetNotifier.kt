@@ -116,8 +116,21 @@ class BudgetNotifier @Inject constructor(
     private val zone: TimeZone,
     private val poster: NotificationPoster,
 ) {
-    suspend fun checkAndNotify(categoryId: Long): BudgetAlert? {
-        val budget = budgetDao.observeAll().first().firstOrNull { it.categoryId == categoryId } ?: return null
+    /**
+     * Evaluates the budget for **this exact (category, currency) pair**, not merely for
+     * [categoryId]. A category may legitimately hold one budget per currency (Task 11's
+     * fix round 2); matching on `categoryId` alone picked whichever row the DAO returned
+     * first, then filtered spend and keyed alert state by *that* row's currency — so a
+     * Shopping category with an NPR 20,000 and a USD 100 budget compared NPR spend to the
+     * NPR limit when a USD 95 card transaction arrived, and the USD budget could never
+     * fire in any month. [currency] is the currency of the transaction that triggered
+     * this check, carried through on
+     * [com.kharcha.app.ingest.IngestResult.currency].
+     */
+    suspend fun checkAndNotify(categoryId: Long, currency: Currency): BudgetAlert? {
+        val budget = budgetDao.observeAll().first()
+            .firstOrNull { it.categoryId == categoryId && it.currency == currency }
+            ?: return null
         val categories = categoryDao.observeAll().first()
         val category = categories.firstOrNull { it.id == categoryId } ?: return null
         val transactions = transactionDao.observeAll().first()
@@ -138,10 +151,10 @@ class BudgetNotifier @Inject constructor(
             zone = zone,
         )
         val spentMinorUnits = aggregate.byCategory
-            .filter { it.categoryId == categoryId && it.currency == budget.currency }
+            .filter { it.categoryId == categoryId && it.currency == currency }
             .sumOf { it.total.minorUnits }
 
-        val priorState = alertStateDao.get(categoryId, budget.currency, yearMonth)
+        val priorState = alertStateDao.get(categoryId, currency, yearMonth)
         val alert = decide(
             spentMinorUnits = spentMinorUnits,
             limitMinorUnits = budget.monthlyLimitMinorUnits,
@@ -154,7 +167,7 @@ class BudgetNotifier @Inject constructor(
             BudgetAlertStateEntity(
                 id = priorState?.id ?: 0,
                 categoryId = categoryId,
-                currency = budget.currency,
+                currency = currency,
                 yearMonth = yearMonth,
                 // Exceeding implies the threshold was crossed too (thresholdPercent <= 100),
                 // so EXCEEDED marks both flags — otherwise a later call could spuriously
@@ -164,7 +177,7 @@ class BudgetNotifier @Inject constructor(
             )
         )
 
-        poster.post(category.name, alert, spentMinorUnits, budget.monthlyLimitMinorUnits, budget.currency)
+        poster.post(category.name, alert, spentMinorUnits, budget.monthlyLimitMinorUnits, currency)
         return alert
     }
 
