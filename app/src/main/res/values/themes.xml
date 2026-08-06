@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Launch/window theme. The manifest used @android:style/Theme.Material.Light.NoActionBar in
+  a dark-first app that calls enableEdgeToEdge(): a white flash before the first Compose
+  frame, and light system bars over a dark UI.
+
+  Light mode is genuinely supported (KharchaTheme selects KharchaLightColorScheme), so this
+  is a day/night theme rather than a forced-dark one, and the two windowBackground values
+  match the two schemes' `background` (KharchaNeutrals.Neutral95 / Neutral0). Only the
+  launch window is styled here — everything after the first frame is Compose.
+-->
+<resources>
+    <style name="Theme.Kharcha" parent="@android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">#FFF6EFE6</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+    </style>
+</resources>
