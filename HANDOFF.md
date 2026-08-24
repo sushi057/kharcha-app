@@ -1,6 +1,8 @@
 # Kharcha — handoff
 
-Last updated: 2026-08-06. Local-only repo, no remote by design.
+Last updated: 2026-08-24. Pushed to a private GitHub repo,
+`git@github.com:sushi057/kharcha-app.git` (`master`). It was local-only until v2
+shipped; the remote is a backup, not a collaboration point.
 
 **v1 is COMPLETE.** All 12 tasks are implemented, reviewed and merged to
 `master`. The final whole-branch review is clean. What remains is device
