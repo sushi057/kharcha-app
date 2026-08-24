@@ -10,6 +10,11 @@ import com.kharcha.app.ui.onboarding.DataStoreOnboardingState
 import com.kharcha.app.ui.onboarding.OnboardingState
 import com.kharcha.app.ui.onboarding.WorkManagerBackfillGate
 import com.kharcha.app.ui.onboarding.onboardingDataStore
+import com.kharcha.app.ui.settings.DataStoreSettingsPreferences
+import com.kharcha.app.ui.settings.SettingsPreferences
+import com.kharcha.app.ui.settings.settingsDataStore
+import com.kharcha.app.export.ExportFileNamer
+import com.kharcha.app.export.TransactionExporter
 import com.kharcha.app.notify.AndroidNotificationPoster
 import com.kharcha.app.notify.BudgetNotifier
 import com.kharcha.app.notify.NotificationPoster
@@ -51,7 +56,7 @@ object DataModule {
     fun provideDatabase(@ApplicationContext context: Context): KharchaDatabase =
         Room.databaseBuilder(context, KharchaDatabase::class.java, "kharcha.db")
             .addCallback(KharchaDatabase.seedCallback)
-            .addMigrations(KharchaDatabase.MIGRATION_1_2)
+            .addMigrations(KharchaDatabase.MIGRATION_1_2, KharchaDatabase.MIGRATION_2_3)
             .build()
 
     @Provides
@@ -99,6 +104,11 @@ object DataModule {
 
     @Provides
     @Singleton
+    fun provideSettingsPreferences(@ApplicationContext context: Context): SettingsPreferences =
+        DataStoreSettingsPreferences(context.settingsDataStore)
+
+    @Provides
+    @Singleton
     fun provideBackfillGate(
         @ApplicationContext context: Context,
         backfillState: BackfillState,
@@ -139,4 +149,12 @@ object DataModule {
     @Provides
     @Singleton
     fun provideTimeZone(): TimeZone = TimeZone.currentSystemDefault()
+
+    @Provides
+    @Singleton
+    fun provideTransactionExporter(): TransactionExporter = TransactionExporter()
+
+    @Provides
+    @Singleton
+    fun provideExportFileNamer(zone: TimeZone): ExportFileNamer = ExportFileNamer(zone)
 }

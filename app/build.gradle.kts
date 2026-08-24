@@ -36,6 +36,22 @@ android {
     }
 }
 
+/**
+ * The Compose UI tests run under Robolectric, which needs the `ComponentActivity` entry
+ * that `compose.ui.test.manifest` contributes to the *app* manifest — and that artifact is
+ * `debugImplementation`, because putting it on release would ship a test activity inside
+ * the shipping APK. So the release unit-test variant could never host those tests: it
+ * failed 17 of them with "Unable to resolve activity for Intent … ComponentActivity".
+ *
+ * The debug variant runs the identical sources, so nothing is lost by not building the
+ * release one. `./gradlew test` is now green instead of misleadingly red.
+ */
+androidComponents {
+    beforeVariants(selector().withBuildType("release")) { variant ->
+        variant.enableUnitTest = false
+    }
+}
+
 dependencies {
     implementation(project(":parser"))
     implementation(project(":data"))

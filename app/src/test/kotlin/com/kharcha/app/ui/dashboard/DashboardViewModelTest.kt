@@ -23,6 +23,7 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 private class FakeTransactionDao(seed: List<TransactionEntity> = emptyList()) : TransactionDao {
     private val flow = MutableStateFlow(seed)
@@ -105,16 +106,16 @@ class DashboardViewModelTest {
     )
 
     @Test
-    fun `excluded transactions are absent from every aggregate`() = runTest {
+    fun excludedTransactionsAbsent() = runTest {
         val hugeExcludedTransfer = transaction(id = 1, amount = 101_562_500L, currency = Currency.NPR, excluded = true)
         val qrPayment = transaction(id = 2, amount = 298_400L, currency = Currency.NPR)
         val state = newViewModel(listOf(hugeExcludedTransfer, qrPayment)).state.value
 
-        assertEquals(Money(298_400L, Currency.NPR), state.monthToDateSpend[Currency.NPR])
+        assertEquals(Money(298_400L, Currency.NPR), state.monthToDateSpend)
     }
 
     @Test
-    fun `income and fees do not count as discretionary spend`() = runTest {
+    fun incomeAndFeesNotCounted() = runTest {
         val incomeCredit = transaction(
             id = 1,
             amount = 2_492_044L,
@@ -124,11 +125,11 @@ class DashboardViewModelTest {
         )
         val state = newViewModel(listOf(incomeCredit)).state.value
 
-        assertEquals(Money(0L, Currency.NPR), state.monthToDateSpend[Currency.NPR])
+        assertEquals(Money(0L, Currency.NPR), state.monthToDateSpend)
     }
 
     @Test
-    fun `a bare credit against a neutral category is excluded by direction alone`() = runTest {
+    fun neutralCreditExcludedByDirection() = runTest {
         val neutralCredit = transaction(
             id = 1,
             amount = 500_000L,
@@ -138,11 +139,11 @@ class DashboardViewModelTest {
         )
         val state = newViewModel(listOf(neutralCredit)).state.value
 
-        assertEquals(Money(0L, Currency.NPR), state.monthToDateSpend[Currency.NPR])
+        assertEquals(Money(0L, Currency.NPR), state.monthToDateSpend)
     }
 
     @Test
-    fun `a debit categorized Income is excluded by the isIncome flag alone`() = runTest {
+    fun debitAsIncomeExcludedByFlag() = runTest {
         val debitMiscategorizedAsIncome = transaction(
             id = 1,
             amount = 750_000L,
@@ -152,20 +153,21 @@ class DashboardViewModelTest {
         )
         val state = newViewModel(listOf(debitMiscategorizedAsIncome)).state.value
 
-        assertEquals(Money(0L, Currency.NPR), state.monthToDateSpend[Currency.NPR])
+        assertEquals(Money(0L, Currency.NPR), state.monthToDateSpend)
     }
 
     @Test
-    fun `NPR and USD are aggregated separately, never summed`() = runTest {
+    fun nprAndUsdSeparated() = runTest {
         val nprSpend = transaction(id = 1, amount = 298_400L, currency = Currency.NPR)
         val usdSpend = transaction(id = 2, amount = 198L, currency = Currency.USD)
         val state = newViewModel(listOf(nprSpend, usdSpend)).state.value
 
-        assertEquals(setOf(Currency.NPR, Currency.USD), state.monthToDateSpend.keys)
+        assertEquals(Currency.NPR, state.monthToDateSpend.currency)
+        assertEquals(Money(298_400L, Currency.NPR), state.monthToDateSpend)
     }
 
     @Test
-    fun `uncategorized transactions appear as an explicit bucket, not silently dropped`() = runTest {
+    fun uncategorizedTransactionsInBucket() = runTest {
         val uncategorized = transaction(id = 1, amount = 1500L, currency = Currency.NPR, categoryId = null)
         val state = newViewModel(listOf(uncategorized)).state.value
 
@@ -174,12 +176,34 @@ class DashboardViewModelTest {
     }
 
     @Test
-    fun `transactions outside the current month are excluded from month-to-date`() = runTest {
+    fun transactionsOutsideMonthExcluded() = runTest {
         val lastMonth = transaction(id = 1, amount = 1000L, currency = Currency.NPR, day = 5).copy(
             occurredAtEpochMillis = LocalDate(2026, 7, 20).atStartOfDayIn(zone).toEpochMilliseconds(),
         )
         val state = newViewModel(listOf(lastMonth)).state.value
 
-        assertEquals(emptyMap(), state.monthToDateSpend)
+        assertEquals(Money(0L, Currency.NPR), state.monthToDateSpend)
+    }
+
+    @Test
+    fun usdExcludedFromDashboard() = runTest {
+        val nprSpend = transaction(id = 1, amount = 298_400L, currency = Currency.NPR)
+        val usdSpend = transaction(id = 2, amount = 198L, currency = Currency.USD)
+        val state = newViewModel(listOf(nprSpend, usdSpend)).state.value
+
+        assertEquals(Currency.NPR, state.monthToDateSpend.currency)
+        assertEquals(Money(298_400L, Currency.NPR), state.monthToDateSpend)
+        assertTrue(state.byCategory.all { it.currency == Currency.NPR })
+        assertTrue(state.trend.all { it.currency == Currency.NPR })
+    }
+
+    @Test
+    fun cashFlowIncomeFromCredits() = runTest {
+        val credit = transaction(id = 1, amount = 500_000L, currency = Currency.NPR, direction = com.kharcha.parser.Direction.CREDIT)
+        val debit = transaction(id = 2, amount = 100_000L, currency = Currency.NPR)
+        val state = newViewModel(listOf(credit, debit)).state.value
+
+        assertEquals(Money(500_000L, Currency.NPR), state.monthToDateIncome)
+        assertEquals(Money(100_000L, Currency.NPR), state.monthToDateSpend)
     }
 }

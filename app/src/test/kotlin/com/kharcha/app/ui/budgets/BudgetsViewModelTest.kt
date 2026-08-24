@@ -20,6 +20,7 @@ import kotlinx.datetime.Instant
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.atStartOfDayIn
+import kotlinx.datetime.toLocalDateTime
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -277,5 +278,60 @@ class BudgetsViewModelTest {
         assertEquals(2, stored.size)
         assertEquals(500_00L, stored.getValue(Currency.NPR).monthlyLimitMinorUnits)
         assertEquals(200_00L, stored.getValue(Currency.USD).monthlyLimitMinorUnits)
+    }
+
+    @Test
+    fun `summary totals are computed correctly for NPR-only categories`() = runTest {
+        val nprBudget = BudgetEntity(id = 1L, categoryId = foodCategory.id, monthlyLimitMinorUnits = 1000_00L, currency = Currency.NPR, alertThresholdPercent = 80)
+        val viewModel = BudgetsViewModel(
+            budgetDao = FakeBudgetDao(listOf(nprBudget)),
+            categoryDao = FakeCategoryDao(listOf(foodCategory)),
+            transactionDao = FakeTransactionDao(listOf(txn(600_00L, foodCategory.id, currency = Currency.NPR))),
+            clock = FixedClock(fixedNow),
+            zone = zone,
+        )
+
+        val summary = viewModel.state.value.summary
+        assertEquals(600_00L, summary.totalSpentMinorUnits)
+        assertEquals(1000_00L, summary.totalBudgetedMinorUnits)
+        assertEquals(fixedNow.toLocalDateTime(zone).date, summary.today)
+    }
+
+    @Test
+    fun `summary includes only NPR when mixing currencies`() = runTest {
+        val nprBudget = BudgetEntity(id = 1L, categoryId = foodCategory.id, monthlyLimitMinorUnits = 1000_00L, currency = Currency.NPR, alertThresholdPercent = 80)
+        val viewModel = BudgetsViewModel(
+            budgetDao = FakeBudgetDao(listOf(nprBudget)),
+            categoryDao = FakeCategoryDao(listOf(foodCategory)),
+            transactionDao = FakeTransactionDao(
+                listOf(
+                    txn(600_00L, foodCategory.id, currency = Currency.NPR),
+                    txn(50_00L, foodCategory.id, currency = Currency.USD),
+                )
+            ),
+            clock = FixedClock(fixedNow),
+            zone = zone,
+        )
+
+        val summary = viewModel.state.value.summary
+        // Only NPR is counted in summary
+        assertEquals(600_00L, summary.totalSpentMinorUnits)
+        assertEquals(1000_00L, summary.totalBudgetedMinorUnits)
+    }
+
+    @Test
+    fun `6-month history is populated in budget rows`() = runTest {
+        val nprBudget = BudgetEntity(id = 1L, categoryId = foodCategory.id, monthlyLimitMinorUnits = 1000_00L, currency = Currency.NPR, alertThresholdPercent = 80)
+        val viewModel = BudgetsViewModel(
+            budgetDao = FakeBudgetDao(listOf(nprBudget)),
+            categoryDao = FakeCategoryDao(listOf(foodCategory)),
+            transactionDao = FakeTransactionDao(listOf(txn(600_00L, foodCategory.id, currency = Currency.NPR))),
+            clock = FixedClock(fixedNow),
+            zone = zone,
+        )
+
+        val row = viewModel.state.value.rows.find { it.currency == Currency.NPR }
+        assertFalse(row?.last6MonthsHistory.isNullOrEmpty(), "history should be populated")
+        assertEquals(6, row?.last6MonthsHistory?.size, "history should have 6 months")
     }
 }

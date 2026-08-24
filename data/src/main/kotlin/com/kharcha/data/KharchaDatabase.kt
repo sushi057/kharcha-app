@@ -15,7 +15,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         BudgetEntity::class,
         BudgetAlertStateEntity::class
     ],
-    version = 2,
+    version = 3,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -28,6 +28,21 @@ abstract class KharchaDatabase : RoomDatabase() {
     abstract fun budgetAlertStateDao(): BudgetAlertStateDao
 
     companion object {
+        /**
+         * v2 Inbox: records *why* a message was ignored, so the Ignored list can label
+         * each row (OTP / SECURITY / PROMO / …) and the user can restore one the parser
+         * classified wrongly.
+         *
+         * Nullable with no default: rows ignored before this migration have no recorded
+         * reason, and inventing one would put a confident-looking but fabricated label on
+         * historical data. The UI shows those as unlabelled instead.
+         */
+        val MIGRATION_2_3: Migration = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `raw_messages` ADD COLUMN `ignoreReason` TEXT")
+            }
+        }
+
         /** Task 11: adds the budget-alert fire-once-per-month state table. */
         val MIGRATION_1_2: Migration = object : Migration(1, 2) {
             override fun migrate(db: SupportSQLiteDatabase) {

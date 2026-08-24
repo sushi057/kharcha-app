@@ -14,5 +14,7 @@ data class ParsedTransaction(
     val remark: String,
     val merchant: String?,
     val balanceAfter: Money?,
-    val remarkTruncated: Boolean
+    val remarkTruncated: Boolean,
+    val channel: String? = null,
+    val kind: RemarkParser.Kind = RemarkParser.Kind.UNKNOWN
 )

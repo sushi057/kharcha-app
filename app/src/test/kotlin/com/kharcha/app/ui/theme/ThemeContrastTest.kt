@@ -56,6 +56,9 @@ class ThemeContrastTest {
             assertReadable("$name onSurface/surface", scheme.onSurface, scheme.surface)
             assertReadable("$name onSurfaceVariant/surfaceVariant", scheme.onSurfaceVariant, scheme.surfaceVariant)
             assertReadable("$name onPrimary/primary", scheme.onPrimary, scheme.primary)
+            // Test tonal elevation surfaces too
+            assertReadable("$name onSurface/surfaceContainer", scheme.onSurface, scheme.surfaceContainer)
+            assertReadable("$name onSurface/surfaceContainerHigh", scheme.onSurface, scheme.surfaceContainerHigh)
         }
 
         val semantics = listOf(
@@ -68,6 +71,8 @@ class ThemeContrastTest {
             assertReadable("$name debit/surface", semantic.debit, scheme.surface)
             assertReadable("$name credit/background", semantic.credit, scheme.background)
             assertReadable("$name credit/surface", semantic.credit, scheme.surface)
+            assertReadable("$name accent/background", semantic.accent, scheme.background)
+            assertReadable("$name accent/surface", semantic.accent, scheme.surface)
         }
     }
 
@@ -75,5 +80,24 @@ class ThemeContrastTest {
     fun `debit and credit stay distinguishable in both schemes`() {
         assertTrue(kharchaDarkSemanticColors.debit != kharchaDarkSemanticColors.credit)
         assertTrue(kharchaLightSemanticColors.debit != kharchaLightSemanticColors.credit)
+    }
+
+    @Test
+    fun `credit and accent are perceptually distant — the regression this migration fixes`() {
+        // The old amber credit (#E0A94A) was nearly identical to the new gold accent (#D4A03C),
+        // making "money arrived" and "this is a button" read as the same color. The new
+        // credit (sage green #8FAE4F dark / #5C7A2E light) differs significantly in hue (~88° vs ~40°)
+        // so they stay visually distinct. Assert they are always different colors.
+        listOf(
+            "dark" to (kharchaDarkSemanticColors.credit to kharchaDarkSemanticColors.accent),
+            "light" to (kharchaLightSemanticColors.credit to kharchaLightSemanticColors.accent),
+        ).forEach { (name, pair) ->
+            val (credit, accent) = pair
+            assertTrue(
+                credit != accent,
+                "$name credit and accent must be different colors to avoid confusion between " +
+                    "'money arrived' and 'this is a button'"
+            )
+        }
     }
 }

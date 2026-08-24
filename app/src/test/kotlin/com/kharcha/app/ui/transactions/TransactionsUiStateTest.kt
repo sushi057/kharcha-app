@@ -21,11 +21,13 @@ class TransactionsUiStateTest {
         merchant: String? = null,
         categoryId: Long? = null,
         occurredAtEpochMillis: Long = 1_000L,
+        amountMinorUnits: Long = 100L,
+        excludedFromSpending: Boolean = false,
     ) = TransactionEntity(
         id = id,
         rawMessageId = null,
         sourceAccount = "acct",
-        amountMinorUnits = 100L,
+        amountMinorUnits = amountMinorUnits,
         currency = Currency.NPR,
         direction = Direction.DEBIT,
         occurredAtEpochMillis = occurredAtEpochMillis,
@@ -34,7 +36,7 @@ class TransactionsUiStateTest {
         balanceAfterMinorUnits = null,
         categoryId = categoryId,
         categoryIsManualOverride = false,
-        excludedFromSpending = false,
+        excludedFromSpending = excludedFromSpending,
         isManualEntry = false,
     )
 
@@ -130,5 +132,95 @@ class TransactionsUiStateTest {
         )
 
         assertEquals(listOf(4L), state.filteredTransactions.map { it.id })
+    }
+
+    @Test
+    fun `sorting by highest and lowest orders by amount, not by date`() {
+        val small = txn(1, amountMinorUnits = 100L, occurredAtEpochMillis = 900L)
+        val large = txn(2, amountMinorUnits = 90_000L, occurredAtEpochMillis = 100L)
+        val middle = txn(3, amountMinorUnits = 5_000L, occurredAtEpochMillis = 500L)
+        val transactions = listOf(small, large, middle)
+
+        assertEquals(
+            listOf(2L, 3L, 1L),
+            TransactionsUiState(transactions = transactions, sort = TransactionSort.Highest)
+                .filteredTransactions.map { it.id },
+        )
+        assertEquals(
+            listOf(1L, 3L, 2L),
+            TransactionsUiState(transactions = transactions, sort = TransactionSort.Lowest)
+                .filteredTransactions.map { it.id },
+        )
+    }
+
+    @Test
+    fun `chronological sorts do not depend on the order the DAO returned`() {
+        val oldest = txn(1, occurredAtEpochMillis = 100L)
+        val newest = txn(2, occurredAtEpochMillis = 900L)
+        val transactions = listOf(oldest, newest)
+
+        assertEquals(
+            listOf(2L, 1L),
+            TransactionsUiState(transactions = transactions, sort = TransactionSort.Newest)
+                .filteredTransactions.map { it.id },
+        )
+        assertEquals(
+            listOf(1L, 2L),
+            TransactionsUiState(transactions = transactions, sort = TransactionSort.Oldest)
+                .filteredTransactions.map { it.id },
+        )
+    }
+
+    @Test
+    fun `only the chronological sorts keep day headers`() {
+        assertEquals(true, TransactionSort.Newest.isChronological)
+        assertEquals(true, TransactionSort.Oldest.isChronological)
+        assertEquals(false, TransactionSort.Highest.isChronological)
+        assertEquals(false, TransactionSort.Lowest.isChronological)
+    }
+
+    @Test
+    fun `excluded-only shows just the rows waved out of spending`() {
+        val counted = txn(1)
+        val excluded = txn(2, excludedFromSpending = true)
+
+        val state = TransactionsUiState(
+            transactions = listOf(counted, excluded),
+            excludedOnly = true,
+        )
+
+        assertEquals(listOf(2L), state.filteredTransactions.map { it.id })
+    }
+
+    @Test
+    fun `excluded rows are still shown when the filter is off`() {
+        val state = TransactionsUiState(
+            transactions = listOf(txn(1), txn(2, excludedFromSpending = true)),
+        )
+        assertEquals(setOf(1L, 2L), state.filteredTransactions.map { it.id }.toSet())
+    }
+
+    @Test
+    fun `searching a number matches the amount as typed into the app`() {
+        val twoNinetyEight = txn(1, remark = "no words here", amountMinorUnits = 298_400L)
+        val other = txn(2, remark = "no words here", amountMinorUnits = 1_200L)
+
+        val state = TransactionsUiState(
+            transactions = listOf(twoNinetyEight, other),
+            searchQuery = "2984",
+        )
+
+        assertEquals(listOf(1L), state.filteredTransactions.map { it.id })
+    }
+
+    @Test
+    fun `hasActiveFilters reports only what actually narrows the list`() {
+        assertEquals(false, TransactionsUiState().hasActiveFilters)
+        // A search query is visible in its own pill, so it does not light the filter icon.
+        assertEquals(false, TransactionsUiState(searchQuery = "hankook").hasActiveFilters)
+        assertEquals(true, TransactionsUiState(categoryFilter = 1L).hasActiveFilters)
+        assertEquals(true, TransactionsUiState(excludedOnly = true).hasActiveFilters)
+        assertEquals(true, TransactionsUiState(sort = TransactionSort.Highest).hasActiveFilters)
+        assertEquals(true, TransactionsUiState(dateRangeStartEpochMillis = 1L).hasActiveFilters)
     }
 }

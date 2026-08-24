@@ -5,6 +5,7 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTextInput
 import com.kharcha.app.ui.theme.KharchaTheme
@@ -77,12 +78,12 @@ class BudgetsScreenTest {
         // both rows actually rendered rather than one silently replacing the other.
         composeRule.onAllNodesWithText("Food & Dining").assertCountEquals(2)
 
-        composeRule.onNodeWithText(formatMoney(Money(nprRow.spentMinorUnits, Currency.NPR))).assertExists()
-        composeRule.onNodeWithText(formatMoney(Money(usdRow.spentMinorUnits, Currency.USD))).assertExists()
+        composeRule.onNodeWithText(formatMoney(Money(nprRow.spentMinorUnits, Currency.NPR)), substring = true).assertExists()
+        composeRule.onNodeWithText(formatMoney(Money(usdRow.spentMinorUnits, Currency.USD)), substring = true).assertExists()
 
         // The NPR row's budget must never leak onto the USD row.
-        composeRule.onNodeWithText("of ${formatMoney(Money(nprRow.limitMinorUnits!!, Currency.NPR))}").assertExists()
-        composeRule.onNodeWithText("No budget set").assertExists()
+        composeRule.onNodeWithText("of ${formatMoney(Money(nprRow.limitMinorUnits!!, Currency.NPR))}", substring = true).assertExists()
+        composeRule.onNodeWithText("No budget set", substring = true).assertExists()
     }
 
     /**
@@ -113,18 +114,20 @@ class BudgetsScreenTest {
     fun `saving a sub-rupee limit round-trips the minor units`() {
         var savedLimit: Long? = null
         val subRupeeRow = nprRow.copy(limitMinorUnits = 500_50L)
+        // The sheet body is rendered directly: ModalBottomSheet settles asynchronously in
+        // its own window, so a Save click below the fold never reaches the handler.
         composeRule.setContent {
             KharchaTheme {
-                BudgetsScreenContent(
-                    state = BudgetsUiState(rows = listOf(subRupeeRow)),
-                    onSetBudget = { _, limit, _, _ -> savedLimit = limit },
-                    onDeleteBudget = {},
+                BudgetEditSheetContent(
+                    row = subRupeeRow,
+                    onDismiss = {},
+                    onSave = { limit, _ -> savedLimit = limit },
+                    onRemove = null,
                 )
             }
         }
-        composeRule.onNodeWithText(subRupeeRow.categoryName).performClick()
         composeRule.waitForIdle()
-        composeRule.onNodeWithText("Save").performClick()
+        composeRule.onNodeWithText("Save").performScrollTo().performClick()
         composeRule.waitForIdle()
 
         assertEquals(500_50L, savedLimit, "re-saving an untouched limit must not change it")
@@ -139,23 +142,50 @@ class BudgetsScreenTest {
         var saveCalled = false
         composeRule.setContent {
             KharchaTheme {
-                BudgetsScreenContent(
-                    state = BudgetsUiState(rows = listOf(nprRow)),
-                    onSetBudget = { _, _, _, _ -> saveCalled = true },
-                    onDeleteBudget = {},
+                BudgetEditSheetContent(
+                    row = nprRow,
+                    onDismiss = {},
+                    onSave = { _, _ -> saveCalled = true },
+                    onRemove = null,
                 )
             }
         }
-        composeRule.onNodeWithText(nprRow.categoryName).performClick()
         composeRule.waitForIdle()
 
-        composeRule.onNodeWithText("500").performTextClearance()
+        composeRule.onNodeWithText("Monthly limit (NPR)").performTextClearance()
         composeRule.onNodeWithText("Monthly limit (NPR)").performTextInput("not a number")
         composeRule.waitForIdle()
-        composeRule.onNodeWithText("Save").performClick()
+        composeRule.onNodeWithText("Save").performScrollTo().performClick()
         composeRule.waitForIdle()
 
         assertFalse(saveCalled, "an invalid limit must not be saved")
         composeRule.onNodeWithText(BUDGET_INVALID_INPUT_MESSAGE).assertExists()
     }
+
+    @Test
+    fun `every currency with a budget OR spend appears exactly once with a unique key`() {
+        val multiCurrencyRows = listOf(
+            nprRow.copy(currency = Currency.NPR, categoryId = 1L),
+            nprRow.copy(currency = Currency.USD, categoryId = 1L),
+            usdRow.copy(currency = Currency.NPR, categoryId = 2L),
+        )
+        composeRule.setContent {
+            KharchaTheme {
+                BudgetsScreenContent(
+                    state = BudgetsUiState(rows = multiCurrencyRows),
+                    onSetBudget = { _, _, _, _ -> },
+                    onDeleteBudget = {},
+                )
+            }
+        }
+        composeRule.waitForIdle()
+
+        // All three fixture rows share the same category name, so it appears three
+        // times — one per (category, currency) row that actually rendered.
+        composeRule.onAllNodesWithText("Food & Dining").assertCountEquals(3)
+        composeRule.onNodeWithText(formatMoney(Money(300_00L, Currency.NPR)), substring = true).assertExists()
+        // The third row is usdRow re-tagged to NPR, so its spend renders in NPR.
+        composeRule.onNodeWithText(formatMoney(Money(75_00L, Currency.NPR)), substring = true).assertExists()
+    }
 }
+

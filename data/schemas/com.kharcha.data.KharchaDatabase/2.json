@@ -2,11 +2,11 @@
   "formatVersion": 1,
   "database": {
     "version": 2,
-    "identityHash": "d6a19115bcb2fa2e355b7cb626aaceaf",
+    "identityHash": "33527a7681d6110028774801dc29f10f",
     "entities": [
       {
         "tableName": "raw_messages",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `sender` TEXT NOT NULL, `body` TEXT NOT NULL, `receivedAtEpochMillis` INTEGER NOT NULL, `contentHash` TEXT NOT NULL, `ignored` INTEGER NOT NULL, `dismissed` INTEGER NOT NULL)",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `sender` TEXT NOT NULL, `body` TEXT NOT NULL, `receivedAtEpochMillis` INTEGER NOT NULL, `contentHash` TEXT NOT NULL, `ignored` INTEGER NOT NULL, `dismissed` INTEGER NOT NULL, `ignoreReason` TEXT)",
         "fields": [
           {
             "fieldPath": "id",
@@ -49,6 +49,12 @@
             "columnName": "dismissed",
             "affinity": "INTEGER",
             "notNull": true
+          },
+          {
+            "fieldPath": "ignoreReason",
+            "columnName": "ignoreReason",
+            "affinity": "TEXT",
+            "notNull": false
           }
         ],
         "primaryKey": {
@@ -452,7 +458,7 @@
     "views": [],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'd6a19115bcb2fa2e355b7cb626aaceaf')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '33527a7681d6110028774801dc29f10f')"
     ]
   }
 }

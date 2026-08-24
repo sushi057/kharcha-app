@@ -43,15 +43,27 @@ private class ReparseFakeRawMessageDao(seed: List<RawMessage>) : RawMessageDao {
                 it.receivedAtEpochMillis in fromEpochMillis..toEpochMillis
         }
 
-    override suspend fun markIgnored(id: Long) {
+    override suspend fun markIgnored(id: Long, reason: String) {
         val index = messages.indexOfFirst { it.id == id }
-        if (index >= 0) messages[index] = messages[index].copy(ignored = true)
+        if (index >= 0) messages[index] = messages[index].copy(ignored = true, ignoreReason = reason)
+    }
+
+    override fun observeIgnored(): Flow<List<RawMessage>> =
+        MutableStateFlow(messages.filter { it.ignored })
+
+    override suspend fun restore(id: Long) {
+        val index = messages.indexOfFirst { it.id == id }
+        if (index >= 0) messages[index] = messages[index].copy(ignored = false, ignoreReason = null)
     }
 
     override suspend fun count(): Int = messages.size
     override suspend fun getAll(): List<RawMessage> = messages.toList()
     override fun observeUnparsed(): Flow<List<RawMessage>> = flowOf(emptyList())
     override suspend fun markDismissed(id: Long) = Unit
+    override fun observeDismissed(): Flow<List<RawMessage>> = flowOf(emptyList())
+    override suspend fun undismiss(id: Long) = Unit
+    override suspend fun getById(id: Long): RawMessage? = messages.firstOrNull { it.id == id }
+    override fun observeAll(): Flow<List<RawMessage>> = flowOf(messages.toList())
 }
 
 private class ReparseFakeTransactionDao(seed: List<TransactionEntity>) : TransactionDao {
@@ -180,7 +192,9 @@ class ReparseOnRuleChangeTest {
         val vm = TransactionsViewModel(
             transactionDao = txnDao,
             categoryDao = ReparseFakeCategoryDao(listOf(food, shopping)),
+            rawMessageDao = rawDao,
             ruleDao = ruleDao,
+            openDayRequests = OpenDayRequests(),
             zone = TimeZone.UTC,
             reparseService = reparseService,
             ioDispatcher = testDispatcher,

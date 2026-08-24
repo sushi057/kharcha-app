@@ -7,6 +7,7 @@ import com.kharcha.data.RuleDao
 import com.kharcha.data.TransactionDao
 import com.kharcha.data.TransactionEntity
 import com.kharcha.data.contentHashOf
+import com.kharcha.parser.SenderMatching
 import com.kharcha.parser.Currency
 import com.kharcha.parser.ParseResult
 import com.kharcha.parser.ParsedTransaction
@@ -75,7 +76,9 @@ class MessageIngestor(
         receivedAtEpochMillis: Long,
         categorizer: Categorizer?
     ): IngestResult {
-        if (!sender.equals(ruleset.senderId, ignoreCase = true)) {
+        // Tolerates the separator substitution described in SenderMatching; an exact
+        // equals() here drops those messages silently and the user never learns why.
+        if (!SenderMatching.matches(sender, ruleset.senderId)) {
             return IngestResult(IngestOutcome.WRONG_SENDER)
         }
 
@@ -126,7 +129,7 @@ class MessageIngestor(
             }
 
             is ParseResult.Ignored -> {
-                rawMessageDao.markIgnored(rawMessageId)
+                rawMessageDao.markIgnored(rawMessageId, result.reason)
                 IngestResult(IngestOutcome.IGNORED)
             }
 

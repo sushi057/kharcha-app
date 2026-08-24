@@ -27,6 +27,11 @@ private class FakeBackfillGate : BackfillGate {
     override fun enqueueOnce() {
         enqueueCount++
     }
+
+    var rescanCount = 0
+    override suspend fun rescan() {
+        rescanCount++
+    }
 }
 
 class PermissionViewModelTest {
@@ -78,6 +83,51 @@ class PermissionViewModelTest {
         assertEquals(0, backfillGate.enqueueCount)
         assertTrue(onboardingState.seen)
         assertFalse(vm.state.value.hasSmsPermission)
+    }
+
+    @Test
+    fun `nothing is decided until both the permission check and the onboarding flag have landed`() {
+        // The all-defaults state is exactly "no permission, onboarding seen" — the banner
+        // combination — so an ungated state would flash the banner on every cold start.
+        val unresolved = PermissionUiState(hasSmsPermission = false, onboardingSeen = true)
+        assertFalse(unresolved.isResolved)
+        assertFalse(unresolved.showDeniedBanner)
+        assertFalse(unresolved.showOnboarding)
+
+        val halfResolved = unresolved.copy(permissionChecked = true)
+        assertFalse(halfResolved.isResolved)
+        assertFalse(halfResolved.showDeniedBanner)
+
+        val resolved = halfResolved.copy(onboardingLoaded = true)
+        assertTrue(resolved.isResolved)
+        assertTrue(resolved.showDeniedBanner)
+    }
+
+    @Test
+    fun `a granted permission clears the banner once resolved`() {
+        val resolved = PermissionUiState(
+            hasSmsPermission = true,
+            onboardingSeen = true,
+            permissionChecked = true,
+            onboardingLoaded = true,
+        )
+        assertFalse(resolved.showDeniedBanner)
+        assertFalse(resolved.showOnboarding)
+    }
+
+    @Test
+    fun `refreshing the permission state marks it checked, so a later resume can flip it back`() = runTest {
+        val vm = PermissionViewModel(FakeOnboardingState(), FakeBackfillGate())
+        assertFalse(vm.state.value.permissionChecked)
+
+        vm.refreshPermissionState(hasSmsPermission = true)
+        assertTrue(vm.state.value.permissionChecked)
+        assertTrue(vm.state.value.hasSmsPermission)
+
+        // Revoked from system Settings while backgrounded, re-checked on the next resume.
+        vm.refreshPermissionState(hasSmsPermission = false)
+        assertFalse(vm.state.value.hasSmsPermission)
+        assertTrue(vm.state.value.permissionChecked)
     }
 
     @Test

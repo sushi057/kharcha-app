@@ -35,8 +35,8 @@ interface RawMessageDao {
         toEpochMillis: Long,
     ): RawMessage?
 
-    @Query("UPDATE raw_messages SET ignored = 1 WHERE id = :id")
-    suspend fun markIgnored(id: Long)
+    @Query("UPDATE raw_messages SET ignored = 1, ignoreReason = :reason WHERE id = :id")
+    suspend fun markIgnored(id: Long, reason: String)
 
     @Query("SELECT COUNT(*) FROM raw_messages")
     suspend fun count(): Int
@@ -64,4 +64,48 @@ interface RawMessageDao {
 
     @Query("UPDATE raw_messages SET dismissed = 1 WHERE id = :id")
     suspend fun markDismissed(id: Long)
+
+    /**
+     * Everything the user waved away from "needs review". Dismissing is a judgement call
+     * made in a second on a message the parser could not read, so it has to be reviewable:
+     * without this list a mis-tap silently and permanently hides a real transaction.
+     * Messages that were dismissed and later linked to a transaction drop out, same rule
+     * as [observeUnparsed].
+     */
+    @Query(
+        """
+        SELECT rm.* FROM raw_messages rm
+        LEFT JOIN transactions t ON t.rawMessageId = rm.id
+        WHERE rm.dismissed = 1 AND t.id IS NULL
+        ORDER BY rm.id DESC
+        """
+    )
+    fun observeDismissed(): Flow<List<RawMessage>>
+
+    /** Puts a dismissed message back into "needs review". */
+    @Query("UPDATE raw_messages SET dismissed = 0 WHERE id = :id")
+    suspend fun undismiss(id: Long)
+
+    @Query("SELECT * FROM raw_messages WHERE id = :id")
+    suspend fun getById(id: Long): RawMessage?
+
+    /** The bodies of every raw message a transaction can point at, keyed by id. */
+    @Query("SELECT * FROM raw_messages")
+    fun observeAll(): Flow<List<RawMessage>>
+
+    /**
+     * All ignored messages: those that produced ParseResult.Ignored during parsing.
+     * Ordered newest-first for display. These messages are not shown in the unparsed inbox
+     * but are kept for restoration in case they were incorrectly classified.
+     */
+    @Query("SELECT * FROM raw_messages WHERE ignored = 1 ORDER BY id DESC")
+    fun observeIgnored(): Flow<List<RawMessage>>
+
+    /**
+     * Restore an ignored message by marking it as not ignored, clearing the ignore reason.
+     * This allows wrongly-ignored messages (like a password-change alert that was actually
+     * a real OTP) to be re-triaged as unrecognized/needs-review.
+     */
+    @Query("UPDATE raw_messages SET ignored = 0, ignoreReason = NULL WHERE id = :id")
+    suspend fun restore(id: Long)
 }

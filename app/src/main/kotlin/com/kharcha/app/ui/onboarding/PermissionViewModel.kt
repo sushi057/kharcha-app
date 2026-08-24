@@ -12,14 +12,28 @@ import javax.inject.Inject
 data class PermissionUiState(
     val hasSmsPermission: Boolean = false,
     val onboardingSeen: Boolean = false,
+    /** True once a real `checkSelfPermission` result has arrived — see [isResolved]. */
+    val permissionChecked: Boolean = false,
+    /** True once the persisted onboarding flag has been read back — see [isResolved]. */
+    val onboardingLoaded: Boolean = false,
 ) {
+    /**
+     * Both inputs default to `false`, which is indistinguishable from a genuine
+     * "no permission, onboarding already seen" — the exact combination that shows the denied
+     * banner. Without this gate every cold start flashes the banner (and briefly the whole
+     * onboarding screen) before the asynchronous checks land, however the permission actually
+     * stands. Nothing is decided until both answers are real.
+     */
+    val isResolved: Boolean
+        get() = permissionChecked && onboardingLoaded
+
     /** Startup decision: show the full-screen explainer, per [shouldShowOnboarding]. */
     val showOnboarding: Boolean
-        get() = shouldShowOnboarding(hasSmsPermission, onboardingSeen)
+        get() = isResolved && shouldShowOnboarding(hasSmsPermission, onboardingSeen)
 
     /** Denial keeps the app usable; this drives the persistent re-request banner. */
     val showDeniedBanner: Boolean
-        get() = shouldShowDeniedBanner(hasSmsPermission, onboardingSeen)
+        get() = isResolved && shouldShowDeniedBanner(hasSmsPermission, onboardingSeen)
 }
 
 /**
@@ -57,13 +71,24 @@ class PermissionViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
-            _state.value = _state.value.copy(onboardingSeen = onboardingState.isOnboardingSeen())
+            _state.value = _state.value.copy(
+                onboardingSeen = onboardingState.isOnboardingSeen(),
+                onboardingLoaded = true,
+            )
         }
     }
 
-    /** Called once with the current permission-check result, e.g. on app startup. */
+    /**
+     * Called with the current permission-check result. This must run on every resume, not once
+     * at startup: SMS access can be granted or revoked in system Settings while the app sits in
+     * the background, and a one-shot check leaves the banner asserting "SMS access is off" long
+     * after the user turned it on.
+     */
     fun refreshPermissionState(hasSmsPermission: Boolean) {
-        _state.value = _state.value.copy(hasSmsPermission = hasSmsPermission)
+        _state.value = _state.value.copy(
+            hasSmsPermission = hasSmsPermission,
+            permissionChecked = true,
+        )
     }
 
     /** Called with the outcome of the system permission dialog (or a re-request from the banner). */

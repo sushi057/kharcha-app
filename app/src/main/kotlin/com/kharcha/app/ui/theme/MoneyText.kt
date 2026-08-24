@@ -6,6 +6,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.style.TextOverflow
 import com.kharcha.parser.Money
 
 /**
@@ -59,13 +60,52 @@ fun MoneyText(
     modifier: Modifier = Modifier,
     color: Color = LocalContentColor.current,
     style: TextStyle = KharchaMoneyTextStyle,
+    maxLines: Int = Int.MAX_VALUE,
 ) {
     Text(
         text = formatMoney(money),
         modifier = modifier,
         color = color,
         style = style,
+        maxLines = maxLines,
+        overflow = TextOverflow.Ellipsis,
     )
+}
+
+/**
+ * Formats [money] the way a *list* wants it: "−4,820.00", "+50,000.00" — signed,
+ * grouped, two decimals, and no currency code.
+ *
+ * The currency is stated once per screen (in the status line, or on the hero
+ * card) rather than once per row. Repeating "NPR" down a column of forty rows
+ * costs four characters of width each time and tells the reader nothing they
+ * did not know after the first one; dropping it is what lets the decimal points
+ * form the straight column the mono face is there to produce.
+ *
+ * The minus is U+2212 MINUS SIGN, not a hyphen: at mono widths a hyphen sits
+ * high and short and reads as a dash between two words.
+ */
+fun formatSignedAmount(money: Money, explicitPlus: Boolean = true): String {
+    val minorUnits = money.minorUnits
+    val negative = minorUnits < 0
+    val abs = if (negative) -minorUnits else minorUnits
+    val grouped = groupThousands(abs / 100)
+    val fraction = (abs % 100).toString().padStart(2, '0')
+    val sign = when {
+        negative -> "−"
+        // Zero is neither in nor out, and a cash-flow row reading "Out +0.00" in an empty
+        // month says the opposite of what it means.
+        minorUnits == 0L -> ""
+        explicitPlus -> "+"
+        else -> ""
+    }
+    return "$sign$grouped.$fraction"
+}
+
+/** Grouped major units with no sign, currency or decimals — "23,480" on the hero card. */
+fun formatMajorUnits(money: Money): String {
+    val abs = if (money.minorUnits < 0) -money.minorUnits else money.minorUnits
+    return groupThousands(abs / 100)
 }
 
 /** Parses a user-typed decimal amount string into minor units without Double. */

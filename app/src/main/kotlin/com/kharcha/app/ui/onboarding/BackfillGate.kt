@@ -4,8 +4,11 @@ import android.content.Context
 import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
+import androidx.work.await
+import androidx.work.workDataOf
 import com.kharcha.app.ingest.BackfillState
 import com.kharcha.app.ingest.BackfillWorker
+import kotlinx.coroutines.flow.first
 
 /**
  * Thin seam between [PermissionViewModel] and WorkManager so "enqueue backfill on grant" is
@@ -16,6 +19,13 @@ import com.kharcha.app.ingest.BackfillWorker
 interface BackfillGate {
     suspend fun isComplete(): Boolean
     fun enqueueOnce()
+
+    /**
+     * Runs a fresh scan of the SMS inbox even though the first-run import already
+     * completed, and suspends until it finishes. Backs the inbox's "Sync now" action,
+     * which needs to report when the scan is actually done, not when it was enqueued.
+     */
+    suspend fun rescan()
 }
 
 class WorkManagerBackfillGate(
@@ -35,6 +45,24 @@ class WorkManagerBackfillGate(
         val request = OneTimeWorkRequestBuilder<BackfillWorker>().build()
         WorkManager.getInstance(context)
             .enqueueUniqueWork(UNIQUE_WORK_NAME, ExistingWorkPolicy.KEEP, request)
+    }
+
+    /**
+     * Shares [UNIQUE_WORK_NAME] with [enqueueOnce] and keeps [ExistingWorkPolicy.KEEP], so
+     * a manual sync that lands while the first-run import is still running joins that run
+     * instead of starting a second scan of the same inbox. Awaiting the enqueue before
+     * watching the work state matters: the state flow would otherwise report the previous,
+     * already-finished run and return immediately.
+     */
+    override suspend fun rescan() {
+        val request = OneTimeWorkRequestBuilder<BackfillWorker>()
+            .setInputData(workDataOf(BackfillWorker.KEY_FORCE to true))
+            .build()
+        val workManager = WorkManager.getInstance(context)
+        workManager.enqueueUniqueWork(UNIQUE_WORK_NAME, ExistingWorkPolicy.KEEP, request)
+            .result.await()
+        workManager.getWorkInfosForUniqueWorkFlow(UNIQUE_WORK_NAME)
+            .first { infos -> infos.isNotEmpty() && infos.all { it.state.isFinished } }
     }
 
     companion object {

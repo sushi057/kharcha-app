@@ -1,5 +1,9 @@
 package com.kharcha.app.ui.transactions
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -9,12 +13,18 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -23,11 +33,16 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.unit.sp
 import com.kharcha.data.CategoryEntity
 import com.kharcha.data.TransactionEntity
 import com.kharcha.app.ui.theme.KharchaSpacing
 import com.kharcha.app.ui.theme.parseAmountMinorUnits
+import com.kharcha.parser.RemarkParser
 
 /**
  * Editing sheet for an existing transaction, and (when [transaction] is
@@ -55,6 +70,7 @@ fun TransactionEditSheet(
     ) -> Unit,
     initialMerchantText: String = "",
     initialAmountText: String = "",
+    rawSmsBody: String? = null,
 ) {
     ModalBottomSheet(onDismissRequest = onDismiss) {
         TransactionEditSheetContent(
@@ -69,6 +85,7 @@ fun TransactionEditSheet(
             onDismiss = onDismiss,
             initialMerchantText = initialMerchantText,
             initialAmountText = initialAmountText,
+            rawSmsBody = rawSmsBody,
         )
     }
 }
@@ -91,6 +108,7 @@ fun TransactionEditSheetContent(
     onDismiss: () -> Unit,
     initialMerchantText: String = "",
     initialAmountText: String = "",
+    rawSmsBody: String? = null,
 ) {
     var merchantText by remember(transaction?.id) {
         mutableStateOf(transaction?.merchant ?: initialMerchantText)
@@ -99,15 +117,130 @@ fun TransactionEditSheetContent(
     var pendingCategoryPrompt by remember(transaction?.id) {
         mutableStateOf<CategoryEntity?>(null)
     }
+    var rawSmsExpanded by remember(transaction?.id) { mutableStateOf(false) }
     // Manual-entry mode only. Deliberately starts null rather than defaulting to the
     // first category: "a wrong transaction is worse than a missing one", and a
     // defaulted category must never be reported as a manual override (which would make
     // the row permanently immune to ReparseService and to every future rule).
     var selectedCategoryId by remember(transaction?.id) { mutableStateOf<Long?>(null) }
 
-    Column(modifier = Modifier.padding(KharchaSpacing.md)) {
+    val parsed = transaction?.let { RemarkParser.parse(it.remark) }
+
+    // Scrollable: an expanded raw SMS runs several lines longer than the sheet, and
+    // without this the delete button and the save button fall off the bottom.
+    Column(
+        modifier = Modifier
+            .verticalScroll(rememberScrollState())
+            .padding(KharchaSpacing.md),
+    ) {
         Text(text = if (transaction == null) "Add transaction" else "Edit transaction")
         Spacer(modifier = Modifier.height(KharchaSpacing.sm))
+
+        // Show parsed fields prominently for existing transactions
+        if (transaction != null && parsed != null) {
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(
+                        color = MaterialTheme.colorScheme.surfaceContainer,
+                    ),
+                color = MaterialTheme.colorScheme.surfaceContainer,
+            ) {
+                Column(modifier = Modifier.padding(KharchaSpacing.md)) {
+                    Text(
+                        text = "Parsed transaction details",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(modifier = Modifier.height(KharchaSpacing.sm))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Column {
+                            Text(
+                                text = "Channel",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Text(
+                                text = parsed.channel ?: "—",
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                        }
+                        Column {
+                            Text(
+                                text = "Type",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Text(
+                                text = parsed.kind.name,
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                        }
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(KharchaSpacing.md))
+
+            // Raw SMS collapsible section
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { rawSmsExpanded = !rawSmsExpanded }
+                    .background(
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                    ),
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+            ) {
+                Column(modifier = Modifier.padding(KharchaSpacing.md)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = "Raw SMS (evidence)",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Icon(
+                            imageVector = if (rawSmsExpanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                            contentDescription = if (rawSmsExpanded) "Collapse" else "Expand",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+
+                    if (rawSmsExpanded) {
+                        Spacer(modifier = Modifier.height(KharchaSpacing.sm))
+                        Text(
+                            // The whole message, never an ellipsis: the reason to open
+                            // this panel is to check a detail the parsed fields left out,
+                            // and a truncated message cannot answer that. `remark` is the
+                            // fallback for manual entries, which have no SMS behind them.
+                            text = rawSmsBody ?: transaction.remark,
+                            style = TextStyle(
+                                fontSize = 11.sp,
+                                fontFamily = FontFamily.Monospace,
+                                lineHeight = 16.sp,
+                            ),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        if (rawSmsBody == null) {
+                            Spacer(modifier = Modifier.height(KharchaSpacing.xs))
+                            Text(
+                                text = "No original message — entered by hand.",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.outline,
+                            )
+                        }
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(KharchaSpacing.md))
+        }
 
         if (transaction == null) {
             OutlinedTextField(

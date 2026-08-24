@@ -111,27 +111,39 @@ class TransactionsViewModelTest {
         isManualEntry = false,
     )
 
+    /** No SMS behind anything: these tests are about filtering and categorization. */
+    private val emptyRawMessageDao = object : com.kharcha.data.RawMessageDao {
+        override suspend fun insertIgnoringDuplicates(message: com.kharcha.data.RawMessage): Long = -1L
+        override suspend fun findNearDuplicate(sender: String, body: String, fromEpochMillis: Long, toEpochMillis: Long): com.kharcha.data.RawMessage? = null
+        override suspend fun markIgnored(id: Long, reason: String) = Unit
+        override fun observeIgnored(): Flow<List<com.kharcha.data.RawMessage>> = MutableStateFlow(emptyList())
+        override suspend fun restore(id: Long) = Unit
+        override suspend fun count(): Int = 0
+        override suspend fun getAll(): List<com.kharcha.data.RawMessage> = emptyList()
+        override fun observeUnparsed(): Flow<List<com.kharcha.data.RawMessage>> = MutableStateFlow(emptyList())
+        override suspend fun markDismissed(id: Long) = Unit
+        override fun observeDismissed(): Flow<List<com.kharcha.data.RawMessage>> = MutableStateFlow(emptyList())
+        override suspend fun undismiss(id: Long) = Unit
+        override suspend fun getById(id: Long): com.kharcha.data.RawMessage? = null
+        override fun observeAll(): Flow<List<com.kharcha.data.RawMessage>> = MutableStateFlow(emptyList())
+    }
+
     private fun newViewModel(
         fakeDao: FakeTransactionDao = FakeTransactionDao().apply { seed(sampleTransaction()) },
         categoryDao: FakeCategoryDao = FakeCategoryDao(categories),
         ruleDao: FakeRuleDao = FakeRuleDao(),
+        openDayRequests: OpenDayRequests = OpenDayRequests(),
     ): Triple<TransactionsViewModel, FakeTransactionDao, FakeRuleDao> =
         Triple(
             TransactionsViewModel(
                 transactionDao = fakeDao,
                 categoryDao = categoryDao,
+                rawMessageDao = emptyRawMessageDao,
                 ruleDao = ruleDao,
+                openDayRequests = openDayRequests,
                 zone = kotlinx.datetime.TimeZone.UTC,
                 reparseService = com.kharcha.data.ReparseService(
-                    rawMessageDao = object : com.kharcha.data.RawMessageDao {
-                        override suspend fun insertIgnoringDuplicates(message: com.kharcha.data.RawMessage): Long = -1L
-                        override suspend fun findNearDuplicate(sender: String, body: String, fromEpochMillis: Long, toEpochMillis: Long): com.kharcha.data.RawMessage? = null
-                        override suspend fun markIgnored(id: Long) = Unit
-                        override suspend fun count(): Int = 0
-                        override suspend fun getAll(): List<com.kharcha.data.RawMessage> = emptyList()
-                        override fun observeUnparsed(): Flow<List<com.kharcha.data.RawMessage>> = MutableStateFlow(emptyList())
-                        override suspend fun markDismissed(id: Long) = Unit
-                    },
+                    rawMessageDao = emptyRawMessageDao,
                     transactionDao = fakeDao,
                     ruleset = com.kharcha.parser.SblAlertRuleset,
                     categorizer = com.kharcha.data.Categorizer(emptyList()),
@@ -195,5 +207,50 @@ class TransactionsViewModelTest {
         val (vm, _, _) = newViewModel()
         vm.deleteTransaction(1L)
         assertTrue(vm.state.value.transactions.none { it.id == 1L })
+    }
+
+    @Test
+    fun `a day tapped on the dashboard filters the ledger to that whole day`() = runTest {
+        val bus = OpenDayRequests()
+        val (vm, _, _) = newViewModel(openDayRequests = bus)
+
+        // The sample transaction's own day, in the ViewModel's UTC zone.
+        bus.request(kotlinx.datetime.LocalDate(2025, 8, 1))
+
+        val state = vm.state.value
+        // 2025-08-01T00:00:00Z .. 2025-08-01T23:59:59.999Z
+        assertEquals(1_754_006_400_000L, state.dateRangeStartEpochMillis)
+        assertEquals(1_754_092_799_999L, state.dateRangeEndEpochMillis)
+        assertEquals(null, bus.requests.value, "the request must be consumed once applied")
+    }
+
+    @Test
+    fun `sort and excluded-only survive a change to the search query`() = runTest {
+        val (vm, _, _) = newViewModel()
+        vm.setSort(TransactionSort.Highest)
+        vm.setExcludedOnly(true)
+
+        vm.setSearchQuery("hankook")
+
+        val state = vm.state.value
+        assertEquals(TransactionSort.Highest, state.sort)
+        assertTrue(state.excludedOnly)
+        assertEquals("hankook", state.searchQuery)
+    }
+
+    @Test
+    fun `clearing filters keeps the search query the user is still typing`() = runTest {
+        val (vm, _, _) = newViewModel()
+        vm.setSearchQuery("hankook")
+        vm.setSort(TransactionSort.Lowest)
+        vm.setCategoryFilter(3L)
+        vm.setExcludedOnly(true)
+        vm.setDateRangeFilter(1L, 2L)
+
+        vm.clearFilters()
+
+        val state = vm.state.value
+        assertEquals("hankook", state.searchQuery)
+        assertTrue(!state.hasActiveFilters)
     }
 }

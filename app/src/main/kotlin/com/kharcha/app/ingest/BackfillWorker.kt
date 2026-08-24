@@ -5,6 +5,7 @@ import android.provider.Telephony
 import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
+import com.kharcha.parser.SenderMatching
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 
@@ -24,17 +25,26 @@ class BackfillWorker @AssistedInject constructor(
 ) : CoroutineWorker(appContext, workerParams) {
 
     override suspend fun doWork(): Result {
-        if (backfillState.isComplete()) return Result.success()
+        // A user-triggered re-scan ("Sync now") must run even though the first-run import
+        // already finished, so it overrides the [BackfillState] short-circuit. Re-scanning
+        // is safe: MessageIngestor dedups by content hash and by the near-duplicate window,
+        // so messages already imported are not counted twice.
+        val forced = inputData.getBoolean(KEY_FORCE, false)
+        if (!forced && backfillState.isComplete()) return Result.success()
 
         val projection = arrayOf(
             Telephony.Sms.ADDRESS,
             Telephony.Sms.BODY,
             Telephony.Sms.DATE
         )
-        // LIKE uses SQLite's default case-insensitive ASCII collation, matching the
-        // case-insensitive sender check MessageIngestor itself applies.
-        val selection = "${Telephony.Sms.ADDRESS} LIKE ?"
-        val selectionArgs = arrayOf(TARGET_SENDER)
+        // A deliberately loose prefilter, narrowed afterwards by SenderMatching. LIKE's
+        // `_` is a one-character wildcard, which is why `LIKE 'SBL_Alert'` used to import
+        // "SBLXAlert" too — so the rows it returns are not trusted as-is: every one is
+        // re-checked in Kotlin below, where the underscore may only stand in for a
+        // separator. MessageIngestor applies the identical check to live messages.
+        val patterns = SenderMatching.sqlLikePatterns(TARGET_SENDER)
+        val selection = patterns.joinToString(" OR ") { "${Telephony.Sms.ADDRESS} LIKE ?" }
+        val selectionArgs = patterns.toTypedArray()
 
         // Built once per backfill run, not once per message: MessageIngestor.ingest's
         // single-message overload would otherwise re-query the rule table and re-sort it
@@ -69,5 +79,8 @@ class BackfillWorker @AssistedInject constructor(
 
     companion object {
         private const val TARGET_SENDER = "SBL_Alert"
+
+        /** Set by a user-triggered re-scan to bypass the once-ever [BackfillState] gate. */
+        const val KEY_FORCE = "force"
     }
 }

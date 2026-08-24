@@ -38,9 +38,17 @@ private class FakeRawMessageDao : RawMessageDao {
                 msg.receivedAtEpochMillis in fromEpochMillis..toEpochMillis
         }
 
-    override suspend fun markIgnored(id: Long) {
+    override suspend fun markIgnored(id: Long, reason: String) {
         val index = messages.indexOfFirst { it.id == id }
-        if (index >= 0) messages[index] = messages[index].copy(ignored = true)
+        if (index >= 0) messages[index] = messages[index].copy(ignored = true, ignoreReason = reason)
+    }
+
+    override fun observeIgnored(): Flow<List<RawMessage>> =
+        MutableStateFlow(messages.filter { it.ignored })
+
+    override suspend fun restore(id: Long) {
+        val index = messages.indexOfFirst { it.id == id }
+        if (index >= 0) messages[index] = messages[index].copy(ignored = false, ignoreReason = null)
     }
 
     override suspend fun count(): Int = messages.size
@@ -54,6 +62,18 @@ private class FakeRawMessageDao : RawMessageDao {
         val index = messages.indexOfFirst { it.id == id }
         if (index >= 0) messages[index] = messages[index].copy(dismissed = true)
     }
+
+    override fun observeDismissed(): Flow<List<RawMessage>> =
+        MutableStateFlow(messages.filter { it.dismissed })
+
+    override suspend fun undismiss(id: Long) {
+        val index = messages.indexOfFirst { it.id == id }
+        if (index >= 0) messages[index] = messages[index].copy(dismissed = false)
+    }
+
+    override suspend fun getById(id: Long): RawMessage? = messages.firstOrNull { it.id == id }
+
+    override fun observeAll(): Flow<List<RawMessage>> = MutableStateFlow(messages.toList())
 }
 
 private class FakeTransactionDao : TransactionDao {

@@ -33,6 +33,9 @@ import javax.inject.Inject
  * applies to another currency's spend for the same category. [isOverBudget] is surfaced
  * separately from color (ruling: "over-budget must be signalled by an explicit label, not
  * color alone") so [BudgetsScreen] can render an explicit "Over budget" label.
+ *
+ * [last6MonthsHistory] contains spend in minor units for this (category, currency) pair
+ * for the last 6 months (oldest first), used for the history chart and budget suggestion.
  */
 data class BudgetRow(
     val categoryId: Long,
@@ -43,11 +46,29 @@ data class BudgetRow(
     val limitMinorUnits: Long?,
     val spentMinorUnits: Long,
     val alertThresholdPercent: Int,
+    val last6MonthsHistory: List<Long> = emptyList(),
 ) {
     val isOverBudget: Boolean get() = limitMinorUnits != null && spentMinorUnits >= limitMinorUnits
 }
 
-data class BudgetsUiState(val rows: List<BudgetRow> = emptyList())
+/**
+ * Summary data for the overall budgets card:
+ * - [totalSpentMinorUnits]: sum of all currency-weighted spend this month
+ * - [totalBudgetedMinorUnits]: sum of all budgets (if any) in the user's primary currency (NPR)
+ * - [today]: current date, used for pace calculation and days-remaining
+ * - [monthStart]: first day of the current month, used for pace calculation
+ */
+data class BudgetsSummary(
+    val totalSpentMinorUnits: Long = 0L,
+    val totalBudgetedMinorUnits: Long = 0L,
+    val today: LocalDate? = null,
+    val monthStart: LocalDate? = null,
+)
+
+data class BudgetsUiState(
+    val rows: List<BudgetRow> = emptyList(),
+    val summary: BudgetsSummary = BudgetsSummary(),
+)
 
 /**
  * Drives the budgets screen: one row per spendable (category, currency) pair, merging its
@@ -83,6 +104,40 @@ class BudgetsViewModel @Inject constructor(
         )
         val spendByCategoryAndCurrency = aggregate.byCategory.associateBy { it.categoryId to it.currency }
 
+        // Six-month spend history per (category, currency) pair, oldest first.
+        //
+        // Every pair gets exactly HISTORY_MONTHS entries, with an explicit zero for a
+        // month that saw no spend. Appending only the months that *had* spend would both
+        // shorten the list and — because the history chart's bars are positional — shift
+        // every remaining bar onto the wrong month.
+        val monthlyAggregates = (HISTORY_MONTHS - 1 downTo 0).map { monthOffset ->
+            val historyMonthStart = monthStart.plus(-monthOffset, DateTimeUnit.MONTH)
+            val historyMonthEnd = historyMonthStart.plus(1, DateTimeUnit.MONTH)
+            DashboardAggregator.aggregate(
+                transactions = transactions,
+                categories = categories,
+                monthStartEpochMillis = historyMonthStart.atStartOfDayIn(zone).toEpochMilliseconds(),
+                monthEndExclusiveEpochMillis = historyMonthEnd.atStartOfDayIn(zone).toEpochMilliseconds(),
+                zone = zone,
+            )
+        }
+
+        val monthlyHistory: Map<Pair<Long, Currency>, List<Long>> = monthlyAggregates
+            .flatMap { aggregate ->
+                aggregate.byCategory.mapNotNull { spend ->
+                    spend.categoryId?.let { it to spend.currency }
+                }
+            }
+            .toSet()
+            .associateWith { key ->
+                monthlyAggregates.map { aggregate ->
+                    aggregate.byCategory
+                        .firstOrNull { it.categoryId == key.first && it.currency == key.second }
+                        ?.total?.minorUnits
+                        ?: 0L
+                }
+            }
+
         val rows = categories
             .filter { !it.isIncome && !it.isFee }
             .flatMap { category ->
@@ -116,12 +171,29 @@ class BudgetsViewModel @Inject constructor(
                         limitMinorUnits = budgetForCurrency?.monthlyLimitMinorUnits,
                         spentMinorUnits = spentMinorUnits,
                         alertThresholdPercent = budgetForCurrency?.alertThresholdPercent ?: DEFAULT_THRESHOLD_PERCENT,
+                        last6MonthsHistory = monthlyHistory[category.id to currency] ?: List(HISTORY_MONTHS) { 0L },
                     )
                 }
             }
             .sortedWith(compareBy({ it.categoryName }, { it.currency.name }))
 
-        BudgetsUiState(rows)
+        // Compute summary: total spent (NPR only) and total budgeted (NPR only)
+        val totalSpent = rows
+            .filter { it.currency == Currency.NPR }
+            .sumOf { it.spentMinorUnits }
+        val totalBudgeted = rows
+            .filter { it.currency == Currency.NPR && it.limitMinorUnits != null }
+            .sumOf { it.limitMinorUnits ?: 0L }
+
+        BudgetsUiState(
+            rows = rows,
+            summary = BudgetsSummary(
+                totalSpentMinorUnits = totalSpent,
+                totalBudgetedMinorUnits = totalBudgeted,
+                today = today,
+                monthStart = monthStart,
+            ),
+        )
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.Eagerly,
@@ -169,5 +241,8 @@ class BudgetsViewModel @Inject constructor(
 
     companion object {
         const val DEFAULT_THRESHOLD_PERCENT = 80
+
+        /** Months of spend history shown per category, including the current one. */
+        const val HISTORY_MONTHS = 6
     }
 }
