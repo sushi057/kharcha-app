@@ -46,7 +46,7 @@ object RemarkParser {
     // parenthetical reference block, or at a lone-letter-dash reference stub
     // (e.g. " I-/FUN...") that is not part of a real word like "E-PAYMENT".
     private val fundTrfPattern = Regex(
-        "Fund Trf (?:to|frm)\\s+(.+?)(?:\\s+[A-Za-z]-(?=/|\\s|$)|\\s*\\(|\\s*$)",
+        "Fund Trf (?:to|frm|from)\\s+(.+?)(?:\\s+[A-Za-z]-(?=/|\\s|$)|\\s*\\(|\\s*$)",
         RegexOption.IGNORE_CASE
     )
 
@@ -98,6 +98,7 @@ object RemarkParser {
         val counterparty = fundTrfPattern.find(text)
             ?.groupValues?.get(1)
             ?.trim()
+            ?.let(::stripTrailingRailTokens)
             ?.takeIf { !isGenericLedgerName(it) }
             ?.let { titleCase(it) }
             ?.takeIf { it.isNotBlank() }
@@ -119,6 +120,31 @@ object RemarkParser {
         val merchant = counterparty ?: channel ?: soupFallback
 
         return Result(merchant, channel, kind)
+    }
+
+    /**
+     * The rail token trails the payee in the counterparty position — `Fund Trf to NEA
+     * ELECTRICITY ESEW` names NEA, not "Nea Electricity Esew". The rail is already
+     * captured as the channel, so leaving it on the merchant both misnames the payee and
+     * splits one merchant into several: the same shop reached over eSewa and over
+     * connectIPS would otherwise be two different names in top-merchants and two
+     * different keys for per-merchant rules.
+     *
+     * Only a *trailing* token is stripped. A token in the middle of a name is left alone,
+     * because there the name is what is unusual, not the token.
+     */
+    private val trailingRailToken = Regex(
+        "\\s+(?:ESEW|KHALTI|IMEPAY|FONEPAY|cIPS|SBLIPS\\d*|IBFT|ATM|POS|SBLMOB\\d*|FUN (?:IPS|MOB))$",
+        RegexOption.IGNORE_CASE,
+    )
+
+    private fun stripTrailingRailTokens(counterparty: String): String {
+        var result = counterparty.trim()
+        while (true) {
+            val stripped = trailingRailToken.replace(result, "").trim()
+            if (stripped == result) return result
+            result = stripped
+        }
     }
 
     /**

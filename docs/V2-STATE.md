@@ -50,11 +50,11 @@ artifact; the Compose implementation is the deliverable.
 - **Credit moves from amber `#E0A94A` to sage `#8FAE4F`.** The old amber was nearly identical
   to the new gold accent `#D4A03C`, so "money arrived" and "this is a button" rendered as the
   same colour.
-- **Fraunces + IBM Plex Sans are kept** rather than the mockup's Calistoga + Inter +
-  JetBrains Mono. Both are already bundled offline and licensed, and Plex's `tnum` gives true
-  tabular figures — which is the entire reason the mockup used a mono face. *The user was told
-  this and has not objected; if they want Calistoga specifically, it must be bundled with its
-  OFL licence file.*
+- **Fraunces + IBM Plex Sans were kept at first**, on the grounds that they were already
+  bundled and Plex's `tnum` gives true tabular figures. That was later reversed: the app ships
+  the mockup's **Calistoga + Inter + JetBrains Mono**, all three bundled with their OFL licence
+  files in `app/src/main/font-licenses/`. `Type.kt` is the authority here, not this document —
+  it named the wrong faces for a while.
 - **Rail vs. counterparty are separate axes** in `RemarkParser`. The rail (eSewa, connectIPS,
   IBFT) is *how* money moved and becomes `channel`; the counterparty is *who* received it and
   becomes `merchant`. Collapsing them would key top-merchants, recurring detection and

@@ -246,8 +246,8 @@ private fun AboutCard() {
                 }
             }
             Text(
-                text = "Fonts under the SIL Open Font License 1.1: Fraunces, IBM Plex Sans. " +
-                    "Licence texts ship in app/src/main/font-licenses/.",
+                text = "Fonts under the SIL Open Font License 1.1: Calistoga, Inter, " +
+                    "JetBrains Mono. Licence texts ship with the source.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

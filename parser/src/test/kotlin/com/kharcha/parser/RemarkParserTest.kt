@@ -131,4 +131,42 @@ class RemarkParserTest {
 
         assertEquals("Payable Traders Pvt Ltd", result.merchant)
     }
+
+    @Test
+    fun `a trailing rail token is not part of the payee's name`() {
+        val result = RemarkParser.parse("Fund Trf to NEA ELECTRICITY ESEW")
+
+        assertEquals("Nea Electricity", result.merchant)
+        assertEquals("eSewa", result.channel)
+    }
+
+    @Test
+    fun `the same payee over two rails is one merchant`() {
+        val overEsewa = RemarkParser.parse("Fund Trf to DARAZ NEPAL PVT LTD ESEW").merchant
+        val overIps = RemarkParser.parse("Fund Trf to DARAZ NEPAL PVT LTD cIPS").merchant
+
+        assertEquals(overEsewa, overIps)
+    }
+
+    @Test
+    fun `the mobile-banking marker is stripped from the payee too`() {
+        val result = RemarkParser.parse("Fund Trf to WORLDLINK COMMUNICATIONS SBLMOB")
+
+        assertEquals("Worldlink Communications", result.merchant)
+        assertEquals("Mobile banking", result.channel)
+    }
+
+    @Test
+    fun `a rail token inside a name is left alone`() {
+        // "Atm" here is part of the payee, not the rail that moved the money.
+        val result = RemarkParser.parse("Fund Trf to ATM SERVICES NEPAL PVT LTD")
+
+        assertEquals("Atm Services Nepal Pvt Ltd", result.merchant)
+    }
+
+    @Test
+    fun `an incoming transfer names its payer, whether abbreviated or spelled out`() {
+        assertEquals("Acme Technologies Pvt Ltd", RemarkParser.parse("Fund Trf frm ACME TECHNOLOGIES PVT LTD").merchant)
+        assertEquals("Acme Technologies Pvt Ltd", RemarkParser.parse("Fund Trf from ACME TECHNOLOGIES PVT LTD").merchant)
+    }
 }
