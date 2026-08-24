@@ -63,12 +63,15 @@ v1 is done; there is no plan left to execute. For new work, the context is:
 | `.superpowers/sdd/2026-08-05-kharcha-v1/progress.md` | The v1 ledger: every completion, finding, ruling and deliberate deviation |
 | `.superpowers/sdd/2026-08-05-kharcha-v1/final-fix-report.md` | The final fix wave (its prose misnarrates the work as pre-existing — trust the diff in `6e8a23f`, not the report) |
 
+**Both of those live only on this machine.** `.superpowers/` is agent scratch and is
+gitignored, so a fresh clone will not have them — the git history is the portable record.
+
 The other two files that carry the original context:
 
 | File | What it holds |
 |---|---|
-| `docs/superpowers/specs/2026-08-05-kharcha-sms-expense-tracker-design.md` | The design: message formats, architecture, success criteria |
-| `docs/superpowers/plans/2026-08-05-kharcha-v1.md` | 12 tasks, each with the exact code and tests to write |
+| `docs/specs/2026-08-05-kharcha-sms-expense-tracker-design.md` | The design: message formats, architecture, success criteria |
+| `docs/plans/2026-08-05-kharcha-v1.md` | 12 tasks, each with the exact code and tests to write |
 
 The ledger is authoritative over anyone's recollection.
 

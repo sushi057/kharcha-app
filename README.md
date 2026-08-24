@@ -53,6 +53,16 @@ message from that merchant lands in the right place on its own.
 Export from Settings writes CSV or JSON over a date range you choose, through the system
 file picker, so the file lands wherever you want it.
 
+## Download
+
+Grab the latest APK from [Releases](https://github.com/sushi057/kharcha-app/releases/latest).
+Copy it to the phone and tap it — you will have to allow installs from unknown sources,
+since this is not a Play Store app (see below).
+
+It is signed with the Android debug key, which is fine for a personal sideload but means
+every install has to come from a build signed with that same key. If Android refuses the
+install with a signature error, uninstall the older copy first.
+
 ## Building
 
 Needs JDK 21 and the Android SDK (build-tools 35, platform 35, minSdk 26).
@@ -64,8 +74,7 @@ export ANDROID_HOME=$HOME/Android/Sdk
 ```
 
 The APK lands in `app/build/outputs/apk/debug/app-debug.apk`. Install it over USB with
-`adb install -r`, or copy it to the phone and tap it (you will have to allow installs from
-unknown sources).
+`adb install -r`.
 
 On first launch the app explains why it wants SMS access before asking for it. Denying
 leaves the app fully usable in manual-entry-only mode, with a banner offering to ask again.
