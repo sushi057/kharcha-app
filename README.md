@@ -131,14 +131,9 @@ ELECTRICITY ESEW` is a payment to NEA (the merchant) that travelled over eSewa (
 channel). Folding those together would make the same shop reached over two wallets look
 like two different merchants.
 
-### Another bank
-
-The bank-specific part is one class behind a `SenderRuleset` interface — a sender ID and a
-`parse(body)` — and the rest of the app only ever sees a `ParsedTransaction`. Pointing
-Kharcha at a different bank's alerts means writing that class and changing two lines.
-[`docs/ADAPTING.md`](docs/ADAPTING.md) walks through it, including the parts that are less
-obvious than the interface: which decisions to fail safe on, SMS truncation, and what to
-change if your bank is not in NPR.
+All of this sits behind one `SenderRuleset`, so pointing Kharcha at another bank means
+writing one class and changing two lines — [`docs/ADAPTING.md`](docs/ADAPTING.md) walks
+through it.
 
 ## Status
 
